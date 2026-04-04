@@ -65,6 +65,7 @@ def open_dashboard(dash):
     st.session_state.current_dashboard_id = dash["id"]
     st.session_state.schema_description = None
     st.session_state.dashboard_insight = None
+    st.session_state.insight_stale = False
     st.session_state.tiles = load_dashboard_tiles(dash["id"])
 
 
@@ -108,7 +109,6 @@ def render_insight(insight):
     if not insight:
         return
 
-    # Holistic summary — big green card
     holistic = insight.get("holistic_summary", "")
     if holistic:
         st.markdown("""
@@ -129,7 +129,6 @@ def render_insight(insight):
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Per-chart insights
     chart_insights = insight.get("chart_insights", [])
     if chart_insights:
         st.markdown(
@@ -147,7 +146,7 @@ def render_insight(insight):
                     f"border:1px solid #e2e8f0;"
                     f"border-radius:8px;"
                     f"padding:10px 14px;"
-                    f"margin-bottom:8px;height:100%;'>"
+                    f"margin-bottom:8px;'>"
                     f"<p style='color:#6366f1;"
                     f"font-size:12px;font-weight:600;"
                     f"margin:0 0 4px;'>"
@@ -166,12 +165,14 @@ defaults = {
     "page": "home",
     "tiles": [],
     "df": None,
-    "datasets": {},  # name -> dataframe
+    "datasets": {},
     "active_dataset": None,
     "current_dashboard_name": "",
     "current_dashboard_id": None,
     "schema_description": None,
     "dashboard_insight": None,
+    "insight_stale": False,
+    "insight_tile_count": 0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -267,6 +268,7 @@ with st.sidebar:
         st.session_state.active_dataset = None
         st.session_state.schema_description = None
         st.session_state.dashboard_insight = None
+        st.session_state.insight_stale = False
         st.rerun()
 
     if st.button("➕ New Dashboard",
@@ -281,6 +283,7 @@ with st.sidebar:
         st.session_state.current_dashboard_id = None
         st.session_state.schema_description = None
         st.session_state.dashboard_insight = None
+        st.session_state.insight_stale = False
         st.rerun()
 
     st.divider()
@@ -544,7 +547,7 @@ elif st.session_state.page == "builder":
 
     st.divider()
 
-    # Version history
+    # ── Version history ───────────────────────────
     if st.session_state.current_dashboard_id:
         versions = get_versions(
             st.session_state.current_dashboard_id)
@@ -614,6 +617,8 @@ elif st.session_state.page == "builder":
                                     restored
                                 st.session_state\
                                     .dashboard_insight = None
+                                st.session_state\
+                                    .insight_stale = False
                                 st.success(
                                     f"✅ Restored to {label}!"
                                     f" Review then publish.")
@@ -631,7 +636,7 @@ elif st.session_state.page == "builder":
                             unsafe_allow_html=True
                         )
 
-    # ── DATA SOURCE — multiple CSV support ───────
+    # ── DATA SOURCE ───────────────────────────────
     st.subheader("📁 Data Source")
     st.caption(
         "Upload one or more CSV files. "
@@ -654,7 +659,6 @@ elif st.session_state.page == "builder":
                     f"{len(df_new)} rows · "
                     f"{len(df_new.columns)} columns")
 
-    # Dataset switcher
     if st.session_state.datasets:
         dataset_names = list(st.session_state.datasets.keys())
         if len(dataset_names) == 1:
@@ -666,11 +670,9 @@ elif st.session_state.page == "builder":
                 key="dataset_selector"
             )
 
-        # Set active df
         st.session_state.df = st.session_state.datasets[
             st.session_state.active_dataset]
 
-        # Show dataset summary cards
         if len(dataset_names) > 1:
             st.markdown(
                 f"<p style='font-size:12px;color:#6366f1;"
@@ -680,12 +682,10 @@ elif st.session_state.page == "builder":
                 unsafe_allow_html=True
             )
 
-        # Analyze active dataset
-        if st.session_state.schema_description is None or (
-            "active_dataset_analyzed" not in st.session_state
-            or st.session_state.active_dataset_analyzed
-                != st.session_state.active_dataset
-        ):
+        if (st.session_state.schema_description is None
+                or st.session_state.get(
+                    "active_dataset_analyzed")
+                != st.session_state.active_dataset):
             with st.spinner("Analyzing dataset..."):
                 st.session_state.schema_description = \
                     analyze_schema(st.session_state.df)
@@ -703,9 +703,10 @@ elif st.session_state.page == "builder":
         st.subheader("🎯 Business Use Case Mode")
         st.caption(
             "Tell VizGen what you want to understand — "
-            "AI will auto-generate a full relevant dashboard.")
+            "AI auto-generates a full relevant dashboard.")
 
-        use_case_col, btn_col = st.columns([3, 1])
+        use_case_col, mode_col, btn_col = st.columns(
+            [3, 1, 1])
         with use_case_col:
             use_case = st.selectbox(
                 "What do you want to understand?",
@@ -719,11 +720,23 @@ elif st.session_state.page == "builder":
                 ],
                 key="use_case_select"
             )
+        with mode_col:
+            st.markdown(
+                "<div style='padding-top:24px;'>",
+                unsafe_allow_html=True)
+            replace_mode = st.radio(
+                "Mode",
+                ["Add", "Replace"],
+                horizontal=True,
+                key="use_case_mode"
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
         with btn_col:
-            st.markdown("<div style='padding-top:24px;'>",
-                        unsafe_allow_html=True)
+            st.markdown(
+                "<div style='padding-top:24px;'>",
+                unsafe_allow_html=True)
             gen_dashboard = st.button(
-                "✨ Auto-Generate Dashboard",
+                "✨ Auto-Generate",
                 type="primary",
                 use_container_width=True,
                 key="gen_dashboard_btn"
@@ -732,13 +745,19 @@ elif st.session_state.page == "builder":
 
         if gen_dashboard:
             if use_case == "— Pick a use case —":
-                st.warning("Please pick a business use case first.")
+                st.warning(
+                    "Please pick a business use case first.")
             else:
                 with st.spinner(
                         f"AI is building a {use_case} "
                         f"dashboard for you..."):
                     configs = generate_use_case_dashboard(
                         st.session_state.df, use_case)
+
+                if replace_mode == "Replace":
+                    st.session_state.tiles = []
+                    st.session_state.dashboard_insight = None
+                    st.session_state.insight_stale = False
 
                 added = 0
                 for i, config in enumerate(configs):
@@ -757,16 +776,21 @@ elif st.session_state.page == "builder":
                                 "config": config,
                                 "fig": fig,
                                 "width": "half",
-                                "height": 320
+                                "height": 320,
+                                "dataset_name":
+                                    st.session_state.active_dataset
                             })
                             added += 1
                         except Exception:
                             pass
 
                 if added > 0:
+                    st.session_state.insight_stale = True
                     st.success(
-                        f"✅ Added {added} charts for "
-                        f"**{use_case}**!")
+                        f"✅ {added} charts added for "
+                        f"**{use_case}**! "
+                        f"({'Replaced existing' if replace_mode == 'Replace' else 'Added to canvas'})"
+                    )
                     st.rerun()
                 else:
                     st.error(
@@ -781,7 +805,6 @@ elif st.session_state.page == "builder":
             "Describe what you want — AI picks the best "
             "chart type automatically.")
 
-        # Dataset selector per tile
         if len(st.session_state.datasets) > 1:
             tile_dataset = st.selectbox(
                 "Dataset for this chart:",
@@ -820,7 +843,8 @@ elif st.session_state.page == "builder":
                         f"🤔 {config.get('message', 'Could not build chart.')}\n\n"
                         f"Try being more specific, e.g.:\n"
                         f"- 'Show revenue by region'\n"
-                        f"- 'Show revenue AND units_sold over month'"
+                        f"- 'Show revenue AND units_sold "
+                        f"over month'"
                     )
                 else:
                     try:
@@ -835,6 +859,7 @@ elif st.session_state.page == "builder":
                             "height": 320,
                             "dataset_name": tile_dataset
                         })
+                        st.session_state.insight_stale = True
                         st.rerun()
                     except Exception as e:
                         st.error(
@@ -853,9 +878,24 @@ elif st.session_state.page == "builder":
         st.caption(f"{len(st.session_state.tiles)} tile(s)")
 
         if st.session_state.df is not None:
-            if st.button(
-                    "📝 Generate Executive Summary",
-                    use_container_width=True):
+
+            # Stale warning
+            if (st.session_state.dashboard_insight
+                    and st.session_state.insight_stale):
+                st.warning(
+                    "⚠️ Your dashboard has changed since "
+                    "this summary was generated. "
+                    "Click **Refresh Summary** to update it."
+                )
+
+            btn_label = (
+                "🔄 Refresh Summary"
+                if st.session_state.dashboard_insight
+                else "📝 Generate Executive Summary"
+            )
+
+            if st.button(btn_label,
+                          use_container_width=True):
                 with st.spinner(
                         "AI is analyzing your dashboard..."):
                     insight = generate_dashboard_insights(
@@ -863,6 +903,7 @@ elif st.session_state.page == "builder":
                         st.session_state.df
                     )
                 st.session_state.dashboard_insight = insight
+                st.session_state.insight_stale = False
 
             if st.session_state.dashboard_insight:
                 render_insight(
@@ -877,7 +918,6 @@ elif st.session_state.page == "builder":
 
             if width == "full":
                 with st.container(border=True):
-                    # Dataset badge
                     if tile.get("dataset_name"):
                         st.caption(
                             f"📂 {tile['dataset_name']}")
@@ -913,6 +953,8 @@ elif st.session_state.page == "builder":
                                     {"prompt": np_,
                                      "config": nc,
                                      "fig": nf})
+                                st.session_state.insight_stale = \
+                                    True
                                 st.rerun()
                         with c2:
                             w = st.selectbox(
@@ -932,6 +974,8 @@ elif st.session_state.page == "builder":
                                     key=f"dl_{i}",
                                     use_container_width=True):
                                 st.session_state.tiles.pop(i)
+                                st.session_state.insight_stale = \
+                                    True
                                 st.rerun()
                 i += 1
             else:
@@ -978,6 +1022,8 @@ elif st.session_state.page == "builder":
                                             {"prompt": np_,
                                              "config": nc,
                                              "fig": nf})
+                                        st.session_state\
+                                            .insight_stale = True
                                         st.rerun()
                                 with c2b:
                                     w = st.selectbox(
@@ -999,5 +1045,7 @@ elif st.session_state.page == "builder":
                                             use_container_width=True):
                                         st.session_state.tiles.pop(
                                             idx)
+                                        st.session_state\
+                                            .insight_stale = True
                                         st.rerun()
                 i += 2
