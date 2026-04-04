@@ -18,6 +18,62 @@ create_tables()
 
 st.set_page_config(page_title="VizGen", layout="wide")
 
+# ── Sticky top bar CSS ────────────────────────────
+st.markdown("""
+<style>
+    .stApp { background: #f8fafc; }
+    #MainMenu, footer, header { visibility: hidden; }
+    .stDeployButton { display: none; }
+
+    /* Sticky top bar */
+    [data-testid="stAppViewBlockContainer"] > div:first-child {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 999 !important;
+        background: white !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        padding: 12px 0 8px !important;
+    }
+
+    /* Dashboard title styling */
+    .dashboard-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: #1e293b;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Rename input */
+    .rename-input input {
+        font-size: 18px !important;
+        font-weight: 600 !important;
+        color: #1e293b !important;
+        border: 2px solid #6366f1 !important;
+        border-radius: 8px !important;
+        padding: 6px 12px !important;
+    }
+
+    div[data-testid="stMetric"] {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px 20px;
+    }
+    .stButton > button[kind="primary"] {
+        background: #6366f1 !important;
+        border: none !important;
+        color: white !important;
+        border-radius: 8px !important;
+    }
+    .stButton > button {
+        border-radius: 8px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 def load_dashboard_tiles(dashboard_id):
     saved_tiles = get_dashboard_tiles(dashboard_id)
@@ -66,6 +122,7 @@ def open_dashboard(dash):
     st.session_state.schema_description = None
     st.session_state.dashboard_insight = None
     st.session_state.insight_stale = False
+    st.session_state.renaming = False
     st.session_state.tiles = load_dashboard_tiles(dash["id"])
 
 
@@ -173,6 +230,7 @@ defaults = {
     "dashboard_insight": None,
     "insight_stale": False,
     "insight_tile_count": 0,
+    "renaming": False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -269,6 +327,7 @@ with st.sidebar:
         st.session_state.schema_description = None
         st.session_state.dashboard_insight = None
         st.session_state.insight_stale = False
+        st.session_state.renaming = False
         st.rerun()
 
     if st.button("➕ New Dashboard",
@@ -284,6 +343,7 @@ with st.sidebar:
         st.session_state.schema_description = None
         st.session_state.dashboard_insight = None
         st.session_state.insight_stale = False
+        st.session_state.renaming = False
         st.rerun()
 
     st.divider()
@@ -474,76 +534,150 @@ if st.session_state.page == "home":
 # ─────────────────────────────────────────────────
 elif st.session_state.page == "builder":
 
-    col_name, col_save, col_pub = st.columns([4, 1, 1])
-    with col_name:
-        st.session_state.current_dashboard_name = st.text_input(
-            "name",
-            value=st.session_state.current_dashboard_name,
-            placeholder="Untitled Dashboard",
-            label_visibility="collapsed"
-        )
+    # ── STICKY TOP BAR ────────────────────────────
+    with st.container():
+        col_title, col_save, col_pub = st.columns([4, 1, 1])
 
-    with col_save:
-        if st.button("💾 Save", use_container_width=True):
-            name = (st.session_state.current_dashboard_name
-                    or "Untitled")
-            if st.session_state.current_dashboard_id:
-                did = st.session_state.current_dashboard_id
-                update_dashboard_name(did, name)
-                delete_dashboard_tiles(did)
-            else:
-                did = save_dashboard(name, "draft")
-                st.session_state.current_dashboard_id = did
-            for idx, tile in enumerate(st.session_state.tiles):
-                save_tile(
-                    did, tile["prompt"], tile["config"],
-                    idx, tile.get("width", "half"),
-                    tile.get("height", 320),
-                    st.session_state.df.to_json()
-                    if st.session_state.df is not None else None
+        with col_title:
+            dash_name = (
+                st.session_state.current_dashboard_name
+                or "Untitled Dashboard"
+            )
+
+            if st.session_state.renaming:
+                # Rename mode — show input
+                new_name = st.text_input(
+                    "Rename",
+                    value=dash_name,
+                    key="rename_input",
+                    label_visibility="collapsed"
                 )
-            st.success("Saved! Click 🔄 to refresh sidebar.")
-
-    with col_pub:
-        if st.button("🚀 Publish",
-                      use_container_width=True,
-                      type="primary"):
-            name = (st.session_state.current_dashboard_name
-                    or "Untitled")
-            if st.session_state.current_dashboard_id:
-                did = st.session_state.current_dashboard_id
-                existing = get_dashboard_by_id(did)
-                token = (existing["share_token"]
-                         if existing and existing["share_token"]
-                         else str(uuid.uuid4())[:8])
-                update_dashboard_publish(did, token)
-                delete_dashboard_tiles(did)
+                rc1, rc2 = st.columns([1, 1])
+                with rc1:
+                    if st.button("✅ Save name",
+                                  use_container_width=True,
+                                  key="save_name_btn"):
+                        st.session_state\
+                            .current_dashboard_name = new_name
+                        if st.session_state\
+                                .current_dashboard_id:
+                            update_dashboard_name(
+                                st.session_state
+                                .current_dashboard_id,
+                                new_name
+                            )
+                        st.session_state.renaming = False
+                        st.rerun()
+                with rc2:
+                    if st.button("✕ Cancel",
+                                  use_container_width=True,
+                                  key="cancel_name_btn"):
+                        st.session_state.renaming = False
+                        st.rerun()
             else:
-                token = str(uuid.uuid4())[:8]
-                did = save_dashboard(name, "published", token)
-                st.session_state.current_dashboard_id = did
-
-            tiles_data = []
-            for idx, tile in enumerate(st.session_state.tiles):
-                save_tile(
-                    did, tile["prompt"], tile["config"],
-                    idx, tile.get("width", "half"),
-                    tile.get("height", 320),
-                    st.session_state.df.to_json()
-                    if st.session_state.df is not None else None
+                # Display mode — show title + rename button
+                st.markdown(
+                    f"<p style='font-size:22px;"
+                    f"font-weight:700;color:#1e293b;"
+                    f"margin:4px 0 0;'>"
+                    f"📊 {dash_name}"
+                    f"<span style='font-size:13px;"
+                    f"color:#94a3b8;font-weight:400;"
+                    f"margin-left:8px;'>"
+                    f"{'· Draft' if not st.session_state.current_dashboard_id else ''}"
+                    f"</span></p>",
+                    unsafe_allow_html=True
                 )
-                tiles_data.append({
-                    "prompt": tile["prompt"],
-                    "config": tile["config"],
-                    "width": tile.get("width", "half"),
-                    "height": tile.get("height", 320)
-                })
-            version_num = save_version(
-                did, json.dumps(tiles_data))
-            url = f"http://localhost:8501/?share={token}"
-            st.success(
-                f"Published as **Version {version_num}**!")
-            st.code(url, language=None)
+                if st.button("✏️ Rename",
+                              key="rename_btn",
+                              help="Rename this dashboard"):
+                    st.session_state.renaming = True
+                    st.rerun()
+
+        with col_save:
+            if st.button("💾 Save",
+                          use_container_width=True,
+                          key="save_btn"):
+                name = (
+                    st.session_state.current_dashboard_name
+                    or "Untitled"
+                )
+                if st.session_state.current_dashboard_id:
+                    did = st.session_state\
+                        .current_dashboard_id
+                    update_dashboard_name(did, name)
+                    delete_dashboard_tiles(did)
+                else:
+                    did = save_dashboard(name, "draft")
+                    st.session_state\
+                        .current_dashboard_id = did
+                for idx, tile in enumerate(
+                        st.session_state.tiles):
+                    save_tile(
+                        did, tile["prompt"], tile["config"],
+                        idx, tile.get("width", "half"),
+                        tile.get("height", 320),
+                        st.session_state.df.to_json()
+                        if st.session_state.df is not None
+                        else None
+                    )
+                st.success(
+                    "Saved! Click 🔄 to refresh sidebar.")
+
+        with col_pub:
+            if st.button("🚀 Publish",
+                          use_container_width=True,
+                          type="primary",
+                          key="publish_btn"):
+                name = (
+                    st.session_state.current_dashboard_name
+                    or "Untitled"
+                )
+                if st.session_state.current_dashboard_id:
+                    did = st.session_state\
+                        .current_dashboard_id
+                    existing = get_dashboard_by_id(did)
+                    token = (
+                        existing["share_token"]
+                        if existing
+                        and existing["share_token"]
+                        else str(uuid.uuid4())[:8]
+                    )
+                    update_dashboard_publish(did, token)
+                    delete_dashboard_tiles(did)
+                else:
+                    token = str(uuid.uuid4())[:8]
+                    did = save_dashboard(
+                        name, "published", token)
+                    st.session_state\
+                        .current_dashboard_id = did
+
+                tiles_data = []
+                for idx, tile in enumerate(
+                        st.session_state.tiles):
+                    save_tile(
+                        did, tile["prompt"], tile["config"],
+                        idx, tile.get("width", "half"),
+                        tile.get("height", 320),
+                        st.session_state.df.to_json()
+                        if st.session_state.df is not None
+                        else None
+                    )
+                    tiles_data.append({
+                        "prompt": tile["prompt"],
+                        "config": tile["config"],
+                        "width": tile.get("width", "half"),
+                        "height": tile.get("height", 320)
+                    })
+                version_num = save_version(
+                    did, json.dumps(tiles_data))
+                url = (
+                    f"http://localhost:8501/?share={token}"
+                )
+                st.success(
+                    f"Published as "
+                    f"**Version {version_num}**!")
+                st.code(url, language=None)
 
     st.divider()
 
@@ -551,13 +685,14 @@ elif st.session_state.page == "builder":
     if st.session_state.current_dashboard_id:
         versions = get_versions(
             st.session_state.current_dashboard_id)
-        older_versions = versions[1:] if len(versions) > 1 \
-            else []
+        older_versions = versions[1:] \
+            if len(versions) > 1 else []
         if older_versions:
             labels = version_labels(versions)
             with st.expander(
                     f"🕐 Backup Versions · "
-                    f"{len(older_versions)} backup(s) available",
+                    f"{len(older_versions)} backup(s) "
+                    f"available",
                     expanded=False):
                 for idx_v, v in enumerate(older_versions):
                     label = labels[idx_v + 1]
@@ -572,39 +707,40 @@ elif st.session_state.page == "builder":
                         f"· {date}</span></p>",
                         unsafe_allow_html=True
                     )
-                    snapshot = json.loads(v["tiles_snapshot"])
+                    snapshot = json.loads(
+                        v["tiles_snapshot"])
                     with st.expander(
                             f"👁 Preview · "
                             f"{len(snapshot)} tile(s)",
                             expanded=False):
                         if st.session_state.df is not None:
                             prev_cols = st.columns(2)
-                            for t_idx, t in enumerate(snapshot):
+                            for t_idx, t in enumerate(
+                                    snapshot):
                                 cfg = t["config"]
                                 with prev_cols[t_idx % 2]:
                                     try:
-                                        prev_fig = build_chart(
-                                            st.session_state.df,
-                                            cfg, t_idx)
+                                        prev_fig = \
+                                            build_chart(
+                                                st.session_state.df,
+                                                cfg, t_idx)
                                         st.plotly_chart(
                                             prev_fig,
                                             use_container_width=True,
                                             key=f"prev_{v['id']}_{t_idx}"
                                         )
-                                        st.caption(cfg['title'])
+                                        st.caption(
+                                            cfg['title'])
                                     except Exception:
                                         st.info(
                                             f"**{cfg['title']}**"
-                                            f" · {cfg['chart_type']}"
                                         )
                         else:
                             for t in snapshot:
-                                cfg = t["config"]
                                 st.caption(
-                                    f"{cfg['title']} · "
-                                    f"{cfg['chart_type']}")
+                                    t["config"]["title"])
                             st.caption(
-                                "Upload CSV to see previews.")
+                                "Upload CSV to preview.")
 
                     if st.button(
                             f"⏮ Restore {label}",
@@ -620,13 +756,12 @@ elif st.session_state.page == "builder":
                                 st.session_state\
                                     .insight_stale = False
                                 st.success(
-                                    f"✅ Restored to {label}!"
-                                    f" Review then publish.")
+                                    f"✅ Restored! "
+                                    f"Review then publish.")
                                 st.rerun()
                         else:
                             st.warning(
-                                "Upload your CSV first "
-                                "to restore a version.")
+                                "Upload your CSV first.")
 
                     if idx_v < len(older_versions) - 1:
                         st.markdown(
@@ -642,7 +777,6 @@ elif st.session_state.page == "builder":
         "Upload one or more CSV files. "
         "Switch between datasets per chart tile.")
 
-    # Sample CSV download
     try:
         with open("sample.csv", "rb") as f:
             sample_bytes = f.read()
@@ -678,23 +812,27 @@ elif st.session_state.page == "builder":
                     f"{len(df_new.columns)} columns")
 
     if st.session_state.datasets:
-        dataset_names = list(st.session_state.datasets.keys())
+        dataset_names = list(
+            st.session_state.datasets.keys())
         if len(dataset_names) == 1:
-            st.session_state.active_dataset = dataset_names[0]
+            st.session_state.active_dataset = \
+                dataset_names[0]
         else:
-            st.session_state.active_dataset = st.selectbox(
-                "Active dataset for chart building:",
-                dataset_names,
-                key="dataset_selector"
-            )
+            st.session_state.active_dataset = \
+                st.selectbox(
+                    "Active dataset:",
+                    dataset_names,
+                    key="dataset_selector"
+                )
 
-        st.session_state.df = st.session_state.datasets[
-            st.session_state.active_dataset]
+        st.session_state.df = \
+            st.session_state.datasets[
+                st.session_state.active_dataset]
 
         if len(dataset_names) > 1:
             st.markdown(
-                f"<p style='font-size:12px;color:#6366f1;"
-                f"font-weight:600;'>"
+                f"<p style='font-size:12px;"
+                f"color:#6366f1;font-weight:600;'>"
                 f"📂 {len(dataset_names)} datasets loaded: "
                 f"{', '.join(dataset_names)}</p>",
                 unsafe_allow_html=True
@@ -707,8 +845,8 @@ elif st.session_state.page == "builder":
             with st.spinner("Analyzing dataset..."):
                 st.session_state.schema_description = \
                     analyze_schema(st.session_state.df)
-                st.session_state.active_dataset_analyzed = \
-                    st.session_state.active_dataset
+                st.session_state.active_dataset_analyzed \
+                    = st.session_state.active_dataset
 
     if st.session_state.schema_description:
         st.info(st.session_state.schema_description)
@@ -764,17 +902,18 @@ elif st.session_state.page == "builder":
         if gen_dashboard:
             if use_case == "— Pick a use case —":
                 st.warning(
-                    "Please pick a business use case first.")
+                    "Please pick a business use case.")
             else:
                 with st.spinner(
                         f"AI is building a {use_case} "
-                        f"dashboard for you..."):
+                        f"dashboard..."):
                     configs = generate_use_case_dashboard(
                         st.session_state.df, use_case)
 
                 if replace_mode == "Replace":
                     st.session_state.tiles = []
-                    st.session_state.dashboard_insight = None
+                    st.session_state.dashboard_insight \
+                        = None
                     st.session_state.insight_stale = False
 
                 added = 0
@@ -784,7 +923,8 @@ elif st.session_state.page == "builder":
                             fig = build_chart(
                                 st.session_state.df,
                                 config,
-                                len(st.session_state.tiles) + i
+                                len(st.session_state.tiles)
+                                + i
                             )
                             st.session_state.tiles.append({
                                 "prompt": (
@@ -796,7 +936,8 @@ elif st.session_state.page == "builder":
                                 "width": "half",
                                 "height": 320,
                                 "dataset_name":
-                                    st.session_state.active_dataset
+                                    st.session_state
+                                    .active_dataset
                             })
                             added += 1
                         except Exception:
@@ -807,7 +948,7 @@ elif st.session_state.page == "builder":
                     st.success(
                         f"✅ {added} charts added for "
                         f"**{use_case}**! "
-                        f"({'Replaced existing' if replace_mode == 'Replace' else 'Added to canvas'})"
+                        f"({'Replaced' if replace_mode == 'Replace' else 'Added to canvas'})"
                     )
                     st.rerun()
                 else:
@@ -829,7 +970,8 @@ elif st.session_state.page == "builder":
                 list(st.session_state.datasets.keys()),
                 key="tile_dataset_select"
             )
-            tile_df = st.session_state.datasets[tile_dataset]
+            tile_df = st.session_state.datasets[
+                tile_dataset]
         else:
             tile_df = st.session_state.df
             tile_dataset = st.session_state.active_dataset
@@ -838,9 +980,9 @@ elif st.session_state.page == "builder":
             "Describe what you want",
             placeholder=(
                 "e.g. Show revenue by region\n"
-                "e.g. Show revenue AND units sold over months\n"
-                "e.g. Distribution of regions\n"
-                "e.g. Which region has the highest sales?"
+                "e.g. Show revenue AND units sold "
+                "over months\n"
+                "e.g. Which region has highest sales?"
             ),
             height=90,
             key="prompt_input"
@@ -849,7 +991,7 @@ elif st.session_state.page == "builder":
         if st.button("➕ Add Chart Tile", type="primary"):
             if not prompt.strip():
                 st.warning(
-                    "Please describe what you want to see.")
+                    "Please describe what you want.")
             else:
                 with st.spinner(
                         "AI is building your chart..."):
@@ -858,11 +1000,8 @@ elif st.session_state.page == "builder":
 
                 if config.get("status") == "error":
                     st.error(
-                        f"🤔 {config.get('message', 'Could not build chart.')}\n\n"
-                        f"Try being more specific, e.g.:\n"
-                        f"- 'Show revenue by region'\n"
-                        f"- 'Show revenue AND units_sold "
-                        f"over month'"
+                        f"🤔 {config.get('message', 'Could not build.')}\n\n"
+                        f"Try: 'Show revenue by region'"
                     )
                 else:
                     try:
@@ -877,33 +1016,29 @@ elif st.session_state.page == "builder":
                             "height": 320,
                             "dataset_name": tile_dataset
                         })
-                        st.session_state.insight_stale = True
+                        st.session_state.insight_stale = \
+                            True
                         st.rerun()
                     except Exception as e:
                         st.error(
-                            f"Chart could not be built: {e}\n\n"
-                            f"Try rephrasing your request."
-                        )
+                            f"Chart failed: {e}\n\n"
+                            f"Try rephrasing.")
 
     # ── DASHBOARD CANVAS ──────────────────────────
     if st.session_state.tiles:
         st.divider()
-        canvas_name = (
-            st.session_state.current_dashboard_name
-            or "Untitled Dashboard"
-        )
-        st.subheader(f"📊 {canvas_name}")
-        st.caption(f"{len(st.session_state.tiles)} tile(s)")
+        st.caption(
+            f"{len(st.session_state.tiles)} tile(s) "
+            f"on canvas")
 
         if st.session_state.df is not None:
 
-            # Stale warning
             if (st.session_state.dashboard_insight
                     and st.session_state.insight_stale):
                 st.warning(
-                    "⚠️ Your dashboard has changed since "
-                    "this summary was generated. "
-                    "Click **Refresh Summary** to update it."
+                    "⚠️ Dashboard changed since summary "
+                    "was generated. Click "
+                    "**Refresh Summary** to update."
                 )
 
             btn_label = (
@@ -914,8 +1049,7 @@ elif st.session_state.page == "builder":
 
             if st.button(btn_label,
                           use_container_width=True):
-                with st.spinner(
-                        "AI is analyzing your dashboard..."):
+                with st.spinner("AI is analyzing..."):
                     insight = generate_dashboard_insights(
                         st.session_state.tiles,
                         st.session_state.df
@@ -956,18 +1090,23 @@ elif st.session_state.page == "builder":
                                     key=f"rg_{i}",
                                     use_container_width=True):
                                 regen_df = (
-                                    st.session_state.datasets.get(
-                                        tile.get("dataset_name"),
+                                    st.session_state
+                                    .datasets.get(
+                                        tile.get(
+                                            "dataset_name"),
                                         st.session_state.df)
-                                    if st.session_state.datasets
+                                    if st.session_state
+                                    .datasets
                                     else st.session_state.df
                                 )
                                 with st.spinner("..."):
-                                    nc = generate_chart_config(
-                                        regen_df, np_)
+                                    nc = \
+                                        generate_chart_config(
+                                            regen_df, np_)
                                     nf = build_chart(
                                         regen_df, nc, i)
-                                st.session_state.tiles[i].update(
+                                st.session_state.tiles[
+                                    i].update(
                                     {"prompt": np_,
                                      "config": nc,
                                      "fig": nf})
@@ -1006,42 +1145,56 @@ elif st.session_state.page == "builder":
                         with st.container(border=True):
                             if t.get("dataset_name"):
                                 st.caption(
-                                    f"📂 {t['dataset_name']}")
+                                    f"📂 {t['dataset_name']}"
+                                )
                             st.plotly_chart(
                                 t["fig"],
                                 use_container_width=True,
                                 key=f"tile_{idx}")
-                            with st.expander("⚙️ Edit tile"):
+                            with st.expander(
+                                    "⚙️ Edit tile"):
                                 np_ = st.text_area(
                                     "Prompt",
                                     value=t["prompt"],
                                     key=f"ep_{idx}",
                                     height=60)
-                                c1b, c2b, c3b = st.columns(3)
+                                c1b, c2b, c3b = \
+                                    st.columns(3)
                                 with c1b:
                                     if st.button(
                                             "🔄 Regen",
                                             key=f"rg_{idx}",
                                             use_container_width=True):
                                         regen_df = (
-                                            st.session_state.datasets.get(
-                                                t.get("dataset_name"),
+                                            st.session_state
+                                            .datasets.get(
+                                                t.get(
+                                                    "dataset_name"),
                                                 st.session_state.df)
-                                            if st.session_state.datasets
-                                            else st.session_state.df
+                                            if st.session_state
+                                            .datasets
+                                            else
+                                            st.session_state.df
                                         )
-                                        with st.spinner("..."):
-                                            nc = generate_chart_config(
-                                                regen_df, np_)
-                                            nf = build_chart(
-                                                regen_df, nc, idx)
-                                        st.session_state.tiles[
-                                            idx].update(
+                                        with st.spinner(
+                                                "..."):
+                                            nc = \
+                                                generate_chart_config(
+                                                    regen_df,
+                                                    np_)
+                                            nf = \
+                                                build_chart(
+                                                    regen_df,
+                                                    nc, idx)
+                                        st.session_state\
+                                            .tiles[idx]\
+                                            .update(
                                             {"prompt": np_,
                                              "config": nc,
                                              "fig": nf})
                                         st.session_state\
-                                            .insight_stale = True
+                                            .insight_stale \
+                                            = True
                                         st.rerun()
                                 with c2b:
                                     w = st.selectbox(
@@ -1052,8 +1205,9 @@ elif st.session_state.page == "builder":
                                             "Apply",
                                             key=f"aw_{idx}",
                                             use_container_width=True):
-                                        st.session_state.tiles[
-                                            idx]["width"] = w
+                                        st.session_state\
+                                            .tiles[idx][
+                                            "width"] = w
                                         st.rerun()
                                 with c3b:
                                     st.write("")
@@ -1061,9 +1215,10 @@ elif st.session_state.page == "builder":
                                             "🗑️",
                                             key=f"dl_{idx}",
                                             use_container_width=True):
-                                        st.session_state.tiles.pop(
-                                            idx)
                                         st.session_state\
-                                            .insight_stale = True
+                                            .tiles.pop(idx)
+                                        st.session_state\
+                                            .insight_stale \
+                                            = True
                                         st.rerun()
                 i += 2
