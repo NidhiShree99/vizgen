@@ -31,8 +31,7 @@ def build_chart(df, config, tile_index=0):
         try:
             if chart_type not in [
                     "scatter", "box", "histogram",
-                    "dual_line", "dual_bar",
-                    "grouped_bar"]:
+                    "dual_line", "dual_bar", "grouped_bar"]:
                 if pd.api.types.is_numeric_dtype(df_plot[y]):
                     if color:
                         df_plot = df_plot.groupby(
@@ -44,48 +43,42 @@ def build_chart(df, config, tile_index=0):
         except Exception:
             pass
 
-    # ── Dual line chart ───────────────────────────
+    # Dual line
     if chart_type == "dual_line" and y2:
         try:
             agg = df.groupby(x, as_index=False).agg(
                 {y: "sum", y2: "sum"})
         except Exception:
             agg = df_plot
-
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=agg[x], y=agg[y],
-            name=y,
+            x=agg[x], y=agg[y], name=y,
             mode="lines+markers",
             line=dict(color=COLORS[0], width=2),
             marker=dict(size=7)
         ))
         fig.add_trace(go.Scatter(
-            x=agg[x], y=agg[y2],
-            name=y2,
+            x=agg[x], y=agg[y2], name=y2,
             mode="lines+markers",
             line=dict(color=COLORS[1], width=2),
             marker=dict(size=7)
         ))
         fig.update_layout(title=title)
 
-    # ── Dual bar chart ────────────────────────────
+    # Dual bar
     elif chart_type == "dual_bar" and y2:
         try:
             agg = df.groupby(x, as_index=False).agg(
                 {y: "sum", y2: "sum"})
         except Exception:
             agg = df_plot
-
         fig = go.Figure()
         fig.add_trace(go.Bar(
-            x=agg[x], y=agg[y],
-            name=y,
+            x=agg[x], y=agg[y], name=y,
             marker_color=COLORS[0]
         ))
         fig.add_trace(go.Bar(
-            x=agg[x], y=agg[y2],
-            name=y2,
+            x=agg[x], y=agg[y2], name=y2,
             marker_color=COLORS[1]
         ))
         fig.update_layout(title=title, barmode="group")

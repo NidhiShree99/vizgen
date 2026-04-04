@@ -10,7 +10,8 @@ from db import (create_tables, save_dashboard, get_user_dashboards,
                 update_dashboard_publish, save_version,
                 get_versions)
 from ai import (analyze_schema, generate_chart_config,
-                generate_dashboard_insights)
+                generate_dashboard_insights,
+                generate_use_case_dashboard)
 from charts import build_chart
 
 create_tables()
@@ -32,7 +33,8 @@ def load_dashboard_tiles(dashboard_id):
                 "config": config,
                 "fig": fig,
                 "width": tile.get("width", "half"),
-                "height": tile.get("height", 320)
+                "height": tile.get("height", 320),
+                "dataset_name": tile.get("dataset_name", "")
             })
             st.session_state.df = df
             st.session_state.schema_description = None
@@ -105,25 +107,29 @@ def version_list_html(versions):
 def render_insight(insight):
     if not insight:
         return
-    st.markdown("""
-    <div style='background:#f0fdf4;
-    border:1px solid #86efac;
-    border-radius:10px;padding:16px;
-    margin:8px 0 12px;'>
-        <p style='color:#166534;font-size:12px;
-        font-weight:700;text-transform:uppercase;
-        letter-spacing:0.05em;margin:0 0 8px;'>
-        📊 Overall Executive Summary</p>
-    """, unsafe_allow_html=True)
-    st.markdown(
-        f"<p style='color:#1e293b;font-size:14px;"
-        f"line-height:1.7;margin:0;'>"
-        f"{insight.get('overall', '')}"
-        f"</p>",
-        unsafe_allow_html=True
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
 
+    # Holistic summary — big green card
+    holistic = insight.get("holistic_summary", "")
+    if holistic:
+        st.markdown("""
+        <div style='background:#f0fdf4;
+        border:2px solid #86efac;
+        border-radius:12px;padding:20px;
+        margin:8px 0 16px;'>
+            <p style='color:#166534;font-size:11px;
+            font-weight:700;text-transform:uppercase;
+            letter-spacing:0.08em;margin:0 0 10px;'>
+            🧠 HOLISTIC BUSINESS SUMMARY</p>
+        """, unsafe_allow_html=True)
+        st.markdown(
+            f"<p style='color:#1e293b;font-size:15px;"
+            f"line-height:1.8;margin:0;font-weight:400;'>"
+            f"{holistic}</p>",
+            unsafe_allow_html=True
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Per-chart insights
     chart_insights = insight.get("chart_insights", [])
     if chart_insights:
         st.markdown(
@@ -133,24 +139,26 @@ def render_insight(insight):
             "📈 Per-Chart Insights</p>",
             unsafe_allow_html=True
         )
-        for ci in chart_insights:
-            st.markdown(
-                f"<div style='background:#f8fafc;"
-                f"border:1px solid #e2e8f0;"
-                f"border-radius:8px;"
-                f"padding:10px 14px;"
-                f"margin-bottom:8px;'>"
-                f"<p style='color:#6366f1;"
-                f"font-size:12px;font-weight:600;"
-                f"margin:0 0 4px;'>"
-                f"{ci.get('chart', '')}</p>"
-                f"<p style='color:#1e293b;"
-                f"font-size:13px;margin:0;"
-                f"line-height:1.5;'>"
-                f"{ci.get('insight', '')}</p>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+        cols = st.columns(2)
+        for i, ci in enumerate(chart_insights):
+            with cols[i % 2]:
+                st.markdown(
+                    f"<div style='background:#f8fafc;"
+                    f"border:1px solid #e2e8f0;"
+                    f"border-radius:8px;"
+                    f"padding:10px 14px;"
+                    f"margin-bottom:8px;height:100%;'>"
+                    f"<p style='color:#6366f1;"
+                    f"font-size:12px;font-weight:600;"
+                    f"margin:0 0 4px;'>"
+                    f"{ci.get('chart', '')}</p>"
+                    f"<p style='color:#1e293b;"
+                    f"font-size:13px;margin:0;"
+                    f"line-height:1.5;'>"
+                    f"{ci.get('insight', '')}</p>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
 
 # ── Session state ─────────────────────────────────
@@ -158,6 +166,8 @@ defaults = {
     "page": "home",
     "tiles": [],
     "df": None,
+    "datasets": {},  # name -> dataframe
+    "active_dataset": None,
     "current_dashboard_name": "",
     "current_dashboard_id": None,
     "schema_description": None,
@@ -253,6 +263,8 @@ with st.sidebar:
         st.session_state.page = "home"
         st.session_state.tiles = []
         st.session_state.df = None
+        st.session_state.datasets = {}
+        st.session_state.active_dataset = None
         st.session_state.schema_description = None
         st.session_state.dashboard_insight = None
         st.rerun()
@@ -263,6 +275,8 @@ with st.sidebar:
         st.session_state.page = "builder"
         st.session_state.tiles = []
         st.session_state.df = None
+        st.session_state.datasets = {}
+        st.session_state.active_dataset = None
         st.session_state.current_dashboard_name = ""
         st.session_state.current_dashboard_id = None
         st.session_state.schema_description = None
@@ -445,11 +459,11 @@ if st.session_state.page == "home":
     st.subheader("🚀 Getting Started")
     st.markdown("""
     1. Click **New Dashboard** in the sidebar
-    2. Upload a **CSV file**
-    3. Describe your chart in plain English
-    4. Add multiple chart tiles
-    5. Click **📝 Generate Executive Summary**
-    6. **Publish** → get a shareable link
+    2. Upload one or more **CSV files**
+    3. Pick a **Business Use Case** for auto-dashboard OR
+       describe individual charts in plain English
+    4. Click **📝 Generate Executive Summary** for AI insights
+    5. **Publish** → get a shareable link
     """)
 
 # ─────────────────────────────────────────────────
@@ -530,7 +544,7 @@ elif st.session_state.page == "builder":
 
     st.divider()
 
-    # ── Version history ───────────────────────────
+    # Version history
     if st.session_state.current_dashboard_id:
         versions = get_versions(
             st.session_state.current_dashboard_id)
@@ -545,7 +559,6 @@ elif st.session_state.page == "builder":
                 for idx_v, v in enumerate(older_versions):
                     label = labels[idx_v + 1]
                     date = v['published_at'][:16]
-
                     st.markdown(
                         f"<p style='font-weight:600;"
                         f"font-size:13px;color:#475569;"
@@ -556,7 +569,6 @@ elif st.session_state.page == "builder":
                         f"· {date}</span></p>",
                         unsafe_allow_html=True
                     )
-
                     snapshot = json.loads(v["tiles_snapshot"])
                     with st.expander(
                             f"👁 Preview · "
@@ -585,25 +597,9 @@ elif st.session_state.page == "builder":
                         else:
                             for t in snapshot:
                                 cfg = t["config"]
-                                st.markdown(
-                                    f"<div style='background:#f8fafc;"
-                                    f"border:1px solid #e2e8f0;"
-                                    f"border-radius:6px;"
-                                    f"padding:6px 10px;"
-                                    f"margin-bottom:4px;'>"
-                                    f"<p style='color:#6366f1;"
-                                    f"font-size:12px;"
-                                    f"font-weight:600;"
-                                    f"margin:0 0 1px;'>"
-                                    f"{cfg['title']}</p>"
-                                    f"<p style='color:#64748b;"
-                                    f"font-size:11px;margin:0;'>"
-                                    f"{cfg['chart_type'].upper()}"
-                                    f" · X: {cfg['x']}"
-                                    f" · Y: {cfg['y']}</p>"
-                                    f"</div>",
-                                    unsafe_allow_html=True
-                                )
+                                st.caption(
+                                    f"{cfg['title']} · "
+                                    f"{cfg['chart_type']}")
                             st.caption(
                                 "Upload CSV to see previews.")
 
@@ -635,72 +631,175 @@ elif st.session_state.page == "builder":
                             unsafe_allow_html=True
                         )
 
-    # ── Upload ────────────────────────────────────
+    # ── DATA SOURCE — multiple CSV support ───────
     st.subheader("📁 Data Source")
-    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-    if uploaded_file:
-        st.session_state.df = pd.read_csv(uploaded_file)
-        st.success(
-            f"✓ {uploaded_file.name} · "
-            f"{len(st.session_state.df)} rows · "
-            f"{len(st.session_state.df.columns)} columns")
-        if st.session_state.schema_description is None:
-            with st.spinner("Analyzing your data..."):
+    st.caption(
+        "Upload one or more CSV files. "
+        "Switch between datasets per chart tile.")
+
+    uploaded_files = st.file_uploader(
+        "Upload CSV files",
+        type=["csv"],
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
+
+    if uploaded_files:
+        for f in uploaded_files:
+            if f.name not in st.session_state.datasets:
+                df_new = pd.read_csv(f)
+                st.session_state.datasets[f.name] = df_new
+                st.success(
+                    f"✓ {f.name} · "
+                    f"{len(df_new)} rows · "
+                    f"{len(df_new.columns)} columns")
+
+    # Dataset switcher
+    if st.session_state.datasets:
+        dataset_names = list(st.session_state.datasets.keys())
+        if len(dataset_names) == 1:
+            st.session_state.active_dataset = dataset_names[0]
+        else:
+            st.session_state.active_dataset = st.selectbox(
+                "Active dataset for chart building:",
+                dataset_names,
+                key="dataset_selector"
+            )
+
+        # Set active df
+        st.session_state.df = st.session_state.datasets[
+            st.session_state.active_dataset]
+
+        # Show dataset summary cards
+        if len(dataset_names) > 1:
+            st.markdown(
+                f"<p style='font-size:12px;color:#6366f1;"
+                f"font-weight:600;'>"
+                f"📂 {len(dataset_names)} datasets loaded: "
+                f"{', '.join(dataset_names)}</p>",
+                unsafe_allow_html=True
+            )
+
+        # Analyze active dataset
+        if st.session_state.schema_description is None or (
+            "active_dataset_analyzed" not in st.session_state
+            or st.session_state.active_dataset_analyzed
+                != st.session_state.active_dataset
+        ):
+            with st.spinner("Analyzing dataset..."):
                 st.session_state.schema_description = \
                     analyze_schema(st.session_state.df)
+                st.session_state.active_dataset_analyzed = \
+                    st.session_state.active_dataset
 
     if st.session_state.schema_description:
         st.info(st.session_state.schema_description)
 
-    # ── Chart builder ─────────────────────────────
+    # ── CHART BUILDER ─────────────────────────────
     if st.session_state.df is not None:
         st.divider()
+
+        # ── BUSINESS USE CASE MODE ────────────────
+        st.subheader("🎯 Business Use Case Mode")
+        st.caption(
+            "Tell VizGen what you want to understand — "
+            "AI will auto-generate a full relevant dashboard.")
+
+        use_case_col, btn_col = st.columns([3, 1])
+        with use_case_col:
+            use_case = st.selectbox(
+                "What do you want to understand?",
+                [
+                    "— Pick a use case —",
+                    "Trend Analysis",
+                    "Segment Analysis",
+                    "Performance Overview",
+                    "Correlation Analysis",
+                    "Distribution Analysis",
+                ],
+                key="use_case_select"
+            )
+        with btn_col:
+            st.markdown("<div style='padding-top:24px;'>",
+                        unsafe_allow_html=True)
+            gen_dashboard = st.button(
+                "✨ Auto-Generate Dashboard",
+                type="primary",
+                use_container_width=True,
+                key="gen_dashboard_btn"
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if gen_dashboard:
+            if use_case == "— Pick a use case —":
+                st.warning("Please pick a business use case first.")
+            else:
+                with st.spinner(
+                        f"AI is building a {use_case} "
+                        f"dashboard for you..."):
+                    configs = generate_use_case_dashboard(
+                        st.session_state.df, use_case)
+
+                added = 0
+                for i, config in enumerate(configs):
+                    if config.get("status") == "ok":
+                        try:
+                            fig = build_chart(
+                                st.session_state.df,
+                                config,
+                                len(st.session_state.tiles) + i
+                            )
+                            st.session_state.tiles.append({
+                                "prompt": (
+                                    f"Auto: {use_case} — "
+                                    f"{config['title']}"
+                                ),
+                                "config": config,
+                                "fig": fig,
+                                "width": "half",
+                                "height": 320
+                            })
+                            added += 1
+                        except Exception:
+                            pass
+
+                if added > 0:
+                    st.success(
+                        f"✅ Added {added} charts for "
+                        f"**{use_case}**!")
+                    st.rerun()
+                else:
+                    st.error(
+                        "Could not generate charts. "
+                        "Try a different use case.")
+
+        st.divider()
+
+        # ── MANUAL CHART BUILDER ──────────────────
         st.subheader("📊 Add a Chart")
         st.caption(
-            "Describe your chart in plain English. "
-            "Dropdowns are optional hints.")
+            "Describe what you want — AI picks the best "
+            "chart type automatically.")
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            x_col = st.selectbox(
-                "X axis (optional hint)",
-                ["Let AI decide"] +
-                st.session_state.df.columns.tolist(),
-                key="x_col")
-        with c2:
-            y_col = st.selectbox(
-                "Y axis (optional hint)",
-                ["Let AI decide"] +
-                st.session_state.df.columns.tolist(),
-                key="y_col")
-        with c3:
-            chart_hint = st.selectbox(
-                "Chart type (optional hint)",
-                ["Let AI decide", "bar", "grouped_bar",
-                 "line", "dual_line", "dual_bar",
-                 "area", "pie", "scatter",
-                 "histogram", "box", "funnel"],
-                key="chart_hint")
-
-        hint_parts = []
-        if x_col != "Let AI decide":
-            hint_parts.append(f"X axis: {x_col}")
-        if y_col != "Let AI decide":
-            hint_parts.append(f"Y axis: {y_col}")
-        if chart_hint != "Let AI decide":
-            hint_parts.append(f"chart type: {chart_hint}")
-        hint_str = (
-            f" (hints: {', '.join(hint_parts)})"
-            if hint_parts else ""
-        )
+        # Dataset selector per tile
+        if len(st.session_state.datasets) > 1:
+            tile_dataset = st.selectbox(
+                "Dataset for this chart:",
+                list(st.session_state.datasets.keys()),
+                key="tile_dataset_select"
+            )
+            tile_df = st.session_state.datasets[tile_dataset]
+        else:
+            tile_df = st.session_state.df
+            tile_dataset = st.session_state.active_dataset
 
         prompt = st.text_area(
             "Describe what you want",
             placeholder=(
-                "e.g. Show revenue by region as a bar chart\n"
-                "e.g. Show distribution of regions\n"
+                "e.g. Show revenue by region\n"
                 "e.g. Show revenue AND units sold over months\n"
-                "e.g. Compare revenue and units sold by region"
+                "e.g. Distribution of regions\n"
+                "e.g. Which region has the highest sales?"
             ),
             height=90,
             key="prompt_input"
@@ -711,31 +810,30 @@ elif st.session_state.page == "builder":
                 st.warning(
                     "Please describe what you want to see.")
             else:
-                full_prompt = prompt + hint_str
                 with st.spinner(
                         "AI is building your chart..."):
                     config = generate_chart_config(
-                        st.session_state.df, full_prompt)
+                        tile_df, prompt)
 
                 if config.get("status") == "error":
                     st.error(
                         f"🤔 {config.get('message', 'Could not build chart.')}\n\n"
-                        f"**Try being more specific**, e.g.:\n"
-                        f"- 'Show revenue AND units_sold over month'\n"
+                        f"Try being more specific, e.g.:\n"
                         f"- 'Show revenue by region'\n"
-                        f"- 'Show count of rows per region'"
+                        f"- 'Show revenue AND units_sold over month'"
                     )
                 else:
                     try:
                         fig = build_chart(
-                            st.session_state.df, config,
+                            tile_df, config,
                             len(st.session_state.tiles))
                         st.session_state.tiles.append({
                             "prompt": prompt,
                             "config": config,
                             "fig": fig,
                             "width": "half",
-                            "height": 320
+                            "height": 320,
+                            "dataset_name": tile_dataset
                         })
                         st.rerun()
                     except Exception as e:
@@ -744,7 +842,7 @@ elif st.session_state.page == "builder":
                             f"Try rephrasing your request."
                         )
 
-    # ── Dashboard canvas ──────────────────────────
+    # ── DASHBOARD CANVAS ──────────────────────────
     if st.session_state.tiles:
         st.divider()
         canvas_name = (
@@ -755,8 +853,9 @@ elif st.session_state.page == "builder":
         st.caption(f"{len(st.session_state.tiles)} tile(s)")
 
         if st.session_state.df is not None:
-            if st.button("📝 Generate Executive Summary",
-                          use_container_width=True):
+            if st.button(
+                    "📝 Generate Executive Summary",
+                    use_container_width=True):
                 with st.spinner(
                         "AI is analyzing your dashboard..."):
                     insight = generate_dashboard_insights(
@@ -778,6 +877,10 @@ elif st.session_state.page == "builder":
 
             if width == "full":
                 with st.container(border=True):
+                    # Dataset badge
+                    if tile.get("dataset_name"):
+                        st.caption(
+                            f"📂 {tile['dataset_name']}")
                     st.plotly_chart(
                         tile["fig"],
                         use_container_width=True,
@@ -794,13 +897,18 @@ elif st.session_state.page == "builder":
                                     "🔄 Regen",
                                     key=f"rg_{i}",
                                     use_container_width=True):
+                                regen_df = (
+                                    st.session_state.datasets.get(
+                                        tile.get("dataset_name"),
+                                        st.session_state.df)
+                                    if st.session_state.datasets
+                                    else st.session_state.df
+                                )
                                 with st.spinner("..."):
                                     nc = generate_chart_config(
-                                        st.session_state.df,
-                                        np_)
+                                        regen_df, np_)
                                     nf = build_chart(
-                                        st.session_state.df,
-                                        nc, i)
+                                        regen_df, nc, i)
                                 st.session_state.tiles[i].update(
                                     {"prompt": np_,
                                      "config": nc,
@@ -834,6 +942,9 @@ elif st.session_state.page == "builder":
                     t = st.session_state.tiles[idx]
                     with col:
                         with st.container(border=True):
+                            if t.get("dataset_name"):
+                                st.caption(
+                                    f"📂 {t['dataset_name']}")
                             st.plotly_chart(
                                 t["fig"],
                                 use_container_width=True,
@@ -850,13 +961,18 @@ elif st.session_state.page == "builder":
                                             "🔄 Regen",
                                             key=f"rg_{idx}",
                                             use_container_width=True):
+                                        regen_df = (
+                                            st.session_state.datasets.get(
+                                                t.get("dataset_name"),
+                                                st.session_state.df)
+                                            if st.session_state.datasets
+                                            else st.session_state.df
+                                        )
                                         with st.spinner("..."):
                                             nc = generate_chart_config(
-                                                st.session_state.df,
-                                                np_)
+                                                regen_df, np_)
                                             nf = build_chart(
-                                                st.session_state.df,
-                                                nc, idx)
+                                                regen_df, nc, idx)
                                         st.session_state.tiles[
                                             idx].update(
                                             {"prompt": np_,
