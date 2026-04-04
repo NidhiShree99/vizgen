@@ -1,0 +1,13 @@
+region,revenue,units_sold,month
+North,45000,120,January
+South,32000,98,January
+East,67000,145,January
+West,28000,87,January
+North,51000,134,February
+South,38000,110,February
+East,72000,158,February
+West,31000,92,February
+North,48000,128,March
+South,41000,115,March
+East,69000,150,March
+West,35000,99,March
