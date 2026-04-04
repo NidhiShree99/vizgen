@@ -642,6 +642,24 @@ elif st.session_state.page == "builder":
         "Upload one or more CSV files. "
         "Switch between datasets per chart tile.")
 
+    # Sample CSV download
+    try:
+        with open("sample.csv", "rb") as f:
+            sample_bytes = f.read()
+        st.download_button(
+            label="📥 Download sample CSV to test",
+            data=sample_bytes,
+            file_name="sample.csv",
+            mime="text/csv",
+            help=(
+                "Contains: region, revenue, "
+                "units_sold, month — "
+                "12 rows across 4 regions & 3 months"
+            )
+        )
+    except Exception:
+        pass
+
     uploaded_files = st.file_uploader(
         "Upload CSV files",
         type=["csv"],
@@ -953,8 +971,8 @@ elif st.session_state.page == "builder":
                                     {"prompt": np_,
                                      "config": nc,
                                      "fig": nf})
-                                st.session_state.insight_stale = \
-                                    True
+                                st.session_state\
+                                    .insight_stale = True
                                 st.rerun()
                         with c2:
                             w = st.selectbox(
@@ -974,8 +992,8 @@ elif st.session_state.page == "builder":
                                     key=f"dl_{i}",
                                     use_container_width=True):
                                 st.session_state.tiles.pop(i)
-                                st.session_state.insight_stale = \
-                                    True
+                                st.session_state\
+                                    .insight_stale = True
                                 st.rerun()
                 i += 1
             else:
