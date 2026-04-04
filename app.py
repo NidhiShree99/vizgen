@@ -18,6 +18,8 @@ create_tables()
 
 st.set_page_config(page_title="VizGen", layout="wide")
 
+BASE_URL = "https://vizgenanalytics.streamlit.app"
+
 # ── Sticky top bar CSS ────────────────────────────
 st.markdown("""
 <style>
@@ -25,7 +27,6 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
     .stDeployButton { display: none; }
 
-    /* Sticky top bar */
     [data-testid="stAppViewBlockContainer"] > div:first-child {
         position: sticky !important;
         top: 0 !important;
@@ -33,25 +34,6 @@ st.markdown("""
         background: white !important;
         border-bottom: 1px solid #e2e8f0 !important;
         padding: 12px 0 8px !important;
-    }
-
-    /* Dashboard title styling */
-    .dashboard-title {
-        font-size: 22px;
-        font-weight: 700;
-        color: #1e293b;
-        margin: 0;
-        padding: 0;
-    }
-
-    /* Rename input */
-    .rename-input input {
-        font-size: 18px !important;
-        font-weight: 600 !important;
-        color: #1e293b !important;
-        border: 2px solid #6366f1 !important;
-        border-radius: 8px !important;
-        padding: 6px 12px !important;
     }
 
     div[data-testid="stMetric"] {
@@ -384,8 +366,8 @@ with st.sidebar:
                 )
             if dash["share_token"]:
                 st.code(
-                    f"http://localhost:8501"
-                    f"/?share={dash['share_token']}",
+                    f"{BASE_URL}/?share="
+                    f"{dash['share_token']}",
                     language=None
                 )
             b1, b2 = st.columns(2)
@@ -476,8 +458,8 @@ if st.session_state.page == "home":
                     )
                 if dash["share_token"]:
                     st.code(
-                        f"http://localhost:8501"
-                        f"/?share={dash['share_token']}",
+                        f"{BASE_URL}/?share="
+                        f"{dash['share_token']}",
                         language=None
                     )
             with c2:
@@ -545,7 +527,6 @@ elif st.session_state.page == "builder":
             )
 
             if st.session_state.renaming:
-                # Rename mode — show input
                 new_name = st.text_input(
                     "Rename",
                     value=dash_name,
@@ -575,17 +556,11 @@ elif st.session_state.page == "builder":
                         st.session_state.renaming = False
                         st.rerun()
             else:
-                # Display mode — show title + rename button
                 st.markdown(
                     f"<p style='font-size:22px;"
                     f"font-weight:700;color:#1e293b;"
                     f"margin:4px 0 0;'>"
-                    f"📊 {dash_name}"
-                    f"<span style='font-size:13px;"
-                    f"color:#94a3b8;font-weight:400;"
-                    f"margin-left:8px;'>"
-                    f"{'· Draft' if not st.session_state.current_dashboard_id else ''}"
-                    f"</span></p>",
+                    f"📊 {dash_name}</p>",
                     unsafe_allow_html=True
                 )
                 if st.button("✏️ Rename",
@@ -671,9 +646,7 @@ elif st.session_state.page == "builder":
                     })
                 version_num = save_version(
                     did, json.dumps(tiles_data))
-                url = (
-                    f"http://localhost:8501/?share={token}"
-                )
+                url = f"{BASE_URL}/?share={token}"
                 st.success(
                     f"Published as "
                     f"**Version {version_num}**!")
