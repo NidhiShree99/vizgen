@@ -1,11 +1,18 @@
 import anthropic
 import os
 import json
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Use Streamlit secrets if available (deployed), else use .env (local)
+try:
+    api_key = st.secrets["ANTHROPIC_API_KEY"]
+except Exception:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+
+client = anthropic.Anthropic(api_key=api_key)
 
 
 def analyze_schema(df):
