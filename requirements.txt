@@ -3,3 +3,4 @@ pandas
 plotly
 anthropic
 python-dotenv
+psycopg2-binary
