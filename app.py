@@ -11,8 +11,12 @@ from db import (create_tables, save_dashboard, get_user_dashboards,
                 get_versions)
 from ai import (analyze_schema, generate_chart_config,
                 generate_dashboard_insights,
-                generate_use_case_dashboard)
+                generate_use_case_dashboard,
+                generate_filter_config,
+                answer_data_question)
 from charts import build_chart
+from auth import show_auth
+from filters import apply_filters
 
 create_tables()
 
@@ -105,6 +109,8 @@ def open_dashboard(dash):
     st.session_state.dashboard_insight = None
     st.session_state.insight_stale = False
     st.session_state.renaming = False
+    st.session_state.active_filter = None
+    st.session_state.chat_history = []
     st.session_state.tiles = load_dashboard_tiles(dash["id"])
 
 
@@ -213,6 +219,9 @@ defaults = {
     "insight_stale": False,
     "insight_tile_count": 0,
     "renaming": False,
+    "user": None,
+    "active_filter": None,
+    "chat_history": [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -292,12 +301,22 @@ if "share" in params:
         st.error("Dashboard not found or link is invalid.")
     st.stop()
 
+# ── Auth gate ──────────────────────────────────────
+if st.session_state.user is None:
+    show_auth()
+    st.stop()
+
 # ─────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────
 with st.sidebar:
     st.title("🎨 VizGen")
     st.caption("AI Dashboard Builder")
+    st.caption(f"👤 {st.session_state.user['name']}")
+    if st.button("🚪 Log out", use_container_width=True):
+        st.session_state.user = None
+        st.session_state.page = "home"
+        st.rerun()
     st.divider()
 
     if st.button("🏠 Home", use_container_width=True):
@@ -310,6 +329,8 @@ with st.sidebar:
         st.session_state.dashboard_insight = None
         st.session_state.insight_stale = False
         st.session_state.renaming = False
+        st.session_state.active_filter = None
+        st.session_state.chat_history = []
         st.rerun()
 
     if st.button("➕ New Dashboard",
@@ -326,6 +347,8 @@ with st.sidebar:
         st.session_state.dashboard_insight = None
         st.session_state.insight_stale = False
         st.session_state.renaming = False
+        st.session_state.active_filter = None
+        st.session_state.chat_history = []
         st.rerun()
 
     st.divider()
@@ -337,7 +360,7 @@ with st.sidebar:
         if st.button("🔄", help="Refresh list"):
             st.rerun()
 
-    dashboards = get_user_dashboards()
+    dashboards = get_user_dashboards(st.session_state.user["id"])
     published_list = [d for d in dashboards
                       if d["status"] == "published"]
     draft_list = [d for d in dashboards
@@ -381,7 +404,7 @@ with st.sidebar:
                 if st.button("Delete",
                               key=f"sb_del_{dash['id']}",
                               use_container_width=True):
-                    delete_dashboard(dash["id"])
+                    delete_dashboard(dash["id"], st.session_state.user["id"])
                     st.rerun()
             st.markdown("---")
 
@@ -406,7 +429,7 @@ with st.sidebar:
                 if st.button("Delete",
                               key=f"sb_del_{dash['id']}",
                               use_container_width=True):
-                    delete_dashboard(dash["id"])
+                    delete_dashboard(dash["id"], st.session_state.user["id"])
                     st.rerun()
             st.markdown("---")
 
@@ -427,7 +450,7 @@ if st.session_state.page == "home":
         "Build AI-powered dashboards from your data in minutes.")
     st.divider()
 
-    dashboards = get_user_dashboards()
+    dashboards = get_user_dashboards(st.session_state.user["id"])
     total = len(dashboards)
     pub_count = sum(
         1 for d in dashboards if d["status"] == "published")
@@ -472,7 +495,7 @@ if st.session_state.page == "home":
                 if st.button("Delete",
                               key=f"home_del_{dash['id']}",
                               use_container_width=True):
-                    delete_dashboard(dash["id"])
+                    delete_dashboard(dash["id"], st.session_state.user["id"])
                     st.rerun()
             st.divider()
 
@@ -492,7 +515,7 @@ if st.session_state.page == "home":
                 if st.button("Delete",
                               key=f"home_dft_del_{dash['id']}",
                               use_container_width=True):
-                    delete_dashboard(dash["id"])
+                    delete_dashboard(dash["id"], st.session_state.user["id"])
                     st.rerun()
             st.divider()
 
@@ -545,7 +568,8 @@ elif st.session_state.page == "builder":
                             update_dashboard_name(
                                 st.session_state
                                 .current_dashboard_id,
-                                new_name
+                                new_name,
+                                st.session_state.user["id"]
                             )
                         st.session_state.renaming = False
                         st.rerun()
@@ -580,10 +604,12 @@ elif st.session_state.page == "builder":
                 if st.session_state.current_dashboard_id:
                     did = st.session_state\
                         .current_dashboard_id
-                    update_dashboard_name(did, name)
+                    update_dashboard_name(
+                        did, name, st.session_state.user["id"])
                     delete_dashboard_tiles(did)
                 else:
-                    did = save_dashboard(name, "draft")
+                    did = save_dashboard(
+                        name, st.session_state.user["id"], "draft")
                     st.session_state\
                         .current_dashboard_id = did
                 for idx, tile in enumerate(
@@ -618,12 +644,14 @@ elif st.session_state.page == "builder":
                         and existing["share_token"]
                         else str(uuid.uuid4())[:8]
                     )
-                    update_dashboard_publish(did, token)
+                    update_dashboard_publish(
+                        did, token, st.session_state.user["id"])
                     delete_dashboard_tiles(did)
                 else:
                     token = str(uuid.uuid4())[:8]
                     did = save_dashboard(
-                        name, "published", token)
+                        name, st.session_state.user["id"],
+                        "published", token)
                     st.session_state\
                         .current_dashboard_id = did
 
@@ -798,9 +826,8 @@ elif st.session_state.page == "builder":
                     key="dataset_selector"
                 )
 
-        st.session_state.df = \
-            st.session_state.datasets[
-                st.session_state.active_dataset]
+        raw_df = st.session_state.datasets[
+            st.session_state.active_dataset]
 
         if len(dataset_names) > 1:
             st.markdown(
@@ -817,15 +844,109 @@ elif st.session_state.page == "builder":
                 != st.session_state.active_dataset):
             with st.spinner("Analyzing dataset..."):
                 st.session_state.schema_description = \
-                    analyze_schema(st.session_state.df)
+                    analyze_schema(raw_df)
                 st.session_state.active_dataset_analyzed \
                     = st.session_state.active_dataset
+            st.session_state.active_filter = None
+            st.session_state.chat_history = []
 
-    if st.session_state.schema_description:
-        st.info(st.session_state.schema_description)
+        if st.session_state.schema_description:
+            st.info(st.session_state.schema_description)
+
+        # ── NATURAL LANGUAGE FILTER ───────────────
+        st.markdown(
+            "<p style='font-size:13px;font-weight:700;"
+            "color:#475569;margin:12px 0 4px;'>"
+            "🔍 Filter Data</p>",
+            unsafe_allow_html=True
+        )
+        filt_col, filt_btn_col = st.columns([4, 1])
+        with filt_col:
+            filter_prompt = st.text_input(
+                "Describe a filter",
+                placeholder=(
+                    "e.g. only Q4 · exclude region West · "
+                    "revenue over 5000"
+                ),
+                label_visibility="collapsed",
+                key="filter_prompt_input"
+            )
+        with filt_btn_col:
+            apply_filter_clicked = st.button(
+                "Apply Filter", use_container_width=True)
+
+        if apply_filter_clicked:
+            if not filter_prompt.strip():
+                st.warning("Describe a filter first.")
+            else:
+                with st.spinner("AI is applying your filter..."):
+                    filter_config = generate_filter_config(
+                        raw_df, filter_prompt)
+                if filter_config.get("status") == "error":
+                    st.error(
+                        f"🤔 {filter_config.get('message', 'Could not apply filter.')}"
+                    )
+                else:
+                    st.session_state.active_filter = filter_config
+                    st.rerun()
+
+        if st.session_state.active_filter:
+            desc = st.session_state.active_filter.get(
+                "description", "Filter active")
+            chip_col, clear_col = st.columns([4, 1])
+            with chip_col:
+                st.markdown(
+                    f"<div style='background:#eef2ff;"
+                    f"border:1px solid #c7d2fe;"
+                    f"border-radius:8px;padding:6px 12px;"
+                    f"font-size:13px;color:#4338ca;"
+                    f"font-weight:600;margin-top:4px;'>"
+                    f"🔍 {desc}</div>",
+                    unsafe_allow_html=True
+                )
+            with clear_col:
+                if st.button("✕ Clear", use_container_width=True):
+                    st.session_state.active_filter = None
+                    st.rerun()
+
+        st.session_state.df = apply_filters(
+            raw_df, st.session_state.active_filter)
+
+        if (st.session_state.active_filter
+                and len(st.session_state.df) == 0):
+            st.warning(
+                "This filter matched 0 rows. "
+                "Try a different filter or clear it.")
 
     # ── CHART BUILDER ─────────────────────────────
     if st.session_state.df is not None:
+        st.divider()
+
+        # ── ASK YOUR DATA (CHAT) ──────────────────
+        st.subheader("💬 Ask Your Data")
+        st.caption(
+            "Chat with your dataset — ask questions in "
+            "plain English and get real-number answers.")
+
+        with st.container(height=320, border=True):
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"].replace("$", "\\$"))
+
+        question = st.chat_input(
+            "e.g. Which region grew the fastest?")
+
+        if question:
+            st.session_state.chat_history.append(
+                {"role": "user", "content": question})
+            with st.spinner("Thinking..."):
+                answer = answer_data_question(
+                    st.session_state.df, question,
+                    st.session_state.chat_history)
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": answer})
+            st.rerun()
+
         st.divider()
 
         # ── BUSINESS USE CASE MODE ────────────────

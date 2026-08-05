@@ -25,6 +25,16 @@ def create_tables():
     c = conn.cursor()
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS dashboards (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
@@ -32,6 +42,11 @@ def create_tables():
             share_token TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    """)
+
+    c.execute("""
+        ALTER TABLE dashboards
+        ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)
     """)
 
     c.execute("""
@@ -72,13 +87,40 @@ def create_tables():
     conn.close()
 
 
-def save_dashboard(name, status="draft", share_token=None):
+def create_user(name, email, password_hash):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        c.execute(
+            "INSERT INTO users (name, email, password_hash) "
+            "VALUES (%s, %s, %s)",
+            (name, email, password_hash)
+        )
+        conn.commit()
+        return True
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+def get_user_by_email(email):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE email = %s", (email,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_dashboard(name, user_id, status="draft", share_token=None):
     conn = get_connection()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO dashboards (name, status, share_token) "
-        "VALUES (%s, %s, %s) RETURNING id",
-        (name, status, share_token)
+        "INSERT INTO dashboards (name, status, share_token, user_id) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (name, status, share_token, user_id)
     )
     dashboard_id = c.fetchone()["id"]
     conn.commit()
@@ -86,33 +128,38 @@ def save_dashboard(name, status="draft", share_token=None):
     return dashboard_id
 
 
-def update_dashboard_name(dashboard_id, name):
+def update_dashboard_name(dashboard_id, name, user_id):
     conn = get_connection()
     c = conn.cursor()
     c.execute(
-        "UPDATE dashboards SET name = %s WHERE id = %s",
-        (name, dashboard_id)
+        "UPDATE dashboards SET name = %s "
+        "WHERE id = %s AND user_id = %s",
+        (name, dashboard_id, user_id)
     )
     conn.commit()
     conn.close()
 
 
-def update_dashboard_publish(dashboard_id, share_token):
+def update_dashboard_publish(dashboard_id, share_token, user_id):
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         "UPDATE dashboards SET status = 'published', "
-        "share_token = %s WHERE id = %s",
-        (share_token, dashboard_id)
+        "share_token = %s WHERE id = %s AND user_id = %s",
+        (share_token, dashboard_id, user_id)
     )
     conn.commit()
     conn.close()
 
 
-def get_user_dashboards():
+def get_user_dashboards(user_id):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM dashboards ORDER BY created_at DESC")
+    c.execute(
+        "SELECT * FROM dashboards WHERE user_id = %s "
+        "ORDER BY created_at DESC",
+        (user_id,)
+    )
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -142,9 +189,16 @@ def get_dashboard_by_id(dashboard_id):
     return dict(row) if row else None
 
 
-def delete_dashboard(dashboard_id):
+def delete_dashboard(dashboard_id, user_id):
     conn = get_connection()
     c = conn.cursor()
+    c.execute(
+        "SELECT id FROM dashboards WHERE id = %s AND user_id = %s",
+        (dashboard_id, user_id)
+    )
+    if not c.fetchone():
+        conn.close()
+        return
     c.execute(
         "DELETE FROM prompt_history WHERE tile_id IN "
         "(SELECT id FROM tiles WHERE dashboard_id = %s)",

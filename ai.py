@@ -111,6 +111,66 @@ No markdown. No explanation. Raw JSON only.
     return json.loads(raw)
 
 
+def generate_filter_config(df, filter_prompt):
+    columns = df.columns.tolist()
+    dtypes = df.dtypes.astype(str).to_dict()
+    sample = df.head(10).to_string()
+
+    uniques = {}
+    for col in df.columns:
+        if df[col].dtype == "object" and df[col].nunique() <= 25:
+            uniques[col] = df[col].unique().tolist()
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        messages=[{
+            "role": "user",
+            "content": f"""
+You are a data filtering expert.
+
+Dataset columns: {columns}
+Column types: {dtypes}
+Sample data:
+{sample}
+Known category values (for text columns): {uniques}
+
+User filter request: "{filter_prompt}"
+
+RULES:
+1. Translate the request into one or more filter conditions
+   using ONLY real column names and real values seen above.
+2. For things like "Q4" or "last quarter", map to the actual
+   matching category values from "Known category values"
+   (e.g. months Oct/Nov/Dec) if a matching column exists.
+3. Supported operators: ==, !=, >, <, >=, <=, contains,
+   not_contains, in
+4. Use "in" with a list value when multiple values should match
+   the same column (e.g. Q4 months).
+5. logic is "AND" or "OR" across all conditions.
+6. If the request cannot be mapped to real columns/values,
+   return {{"status": "error", "message": "short reason"}}.
+
+Return ONLY this JSON:
+{{
+    "status": "ok",
+    "conditions": [
+        {{"column": "column_name", "operator": "==", "value": "value"}}
+    ],
+    "logic": "AND",
+    "description": "short human-readable summary of the filter"
+}}
+
+No markdown. No explanation. Raw JSON only.
+            """
+        }]
+    )
+
+    raw = message.content[0].text.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(raw)
+
+
 def generate_use_case_dashboard(df, use_case):
     """
     Given a business use case, auto-generate a full set
@@ -237,3 +297,52 @@ Be specific with real numbers. Never use vague language.
     raw = message.content[0].text.strip()
     raw = raw.replace("```json", "").replace("```", "").strip()
     return json.loads(raw)
+
+
+def answer_data_question(df, question, history=None):
+    """
+    Answer a natural-language question about the dataset,
+    conversationally, using recent chat history for context.
+    """
+    columns = df.columns.tolist()
+    dtypes = df.dtypes.astype(str).to_dict()
+    sample = df.head(10).to_string()
+    stats = df.describe().to_string()
+
+    history_text = "\n".join(
+        f"{h['role']}: {h['content']}"
+        for h in (history or [])[-6:]
+    )
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        messages=[{
+            "role": "user",
+            "content": f"""
+You are a sharp data analyst chatting with a business user about
+their dataset.
+
+Dataset columns: {columns}
+Column types: {dtypes}
+Sample data:
+{sample}
+Statistics:
+{stats}
+
+Conversation so far:
+{history_text}
+
+New question: "{question}"
+
+Answer directly and conversationally in 2-4 sentences, using real
+numbers from the data whenever possible. If the question can't be
+answered from this dataset, say so honestly and suggest what data
+would be needed instead of guessing.
+
+Plain conversational text only. No markdown headers, no JSON.
+            """
+        }]
+    )
+
+    return message.content[0].text.strip()
