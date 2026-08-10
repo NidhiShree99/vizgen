@@ -8,7 +8,8 @@ from db import (create_tables, save_dashboard, get_user_dashboards,
                 delete_dashboard_tiles, get_dashboard_by_token,
                 get_dashboard_by_id, update_dashboard_name,
                 update_dashboard_publish, save_version,
-                get_versions)
+                get_versions, save_prompt_history,
+                get_dashboard_prompt_history)
 from ai import (analyze_schema, generate_chart_config,
                 generate_dashboard_insights,
                 generate_use_case_dashboard,
@@ -614,7 +615,7 @@ elif st.session_state.page == "builder":
                         .current_dashboard_id = did
                 for idx, tile in enumerate(
                         st.session_state.tiles):
-                    save_tile(
+                    tile_id = save_tile(
                         did, tile["prompt"], tile["config"],
                         idx, tile.get("width", "half"),
                         tile.get("height", 320),
@@ -622,6 +623,8 @@ elif st.session_state.page == "builder":
                         if st.session_state.df is not None
                         else None
                     )
+                    save_prompt_history(
+                        tile_id, tile["prompt"], tile["config"])
                 st.success(
                     "Saved! Click 🔄 to refresh sidebar.")
 
@@ -658,7 +661,7 @@ elif st.session_state.page == "builder":
                 tiles_data = []
                 for idx, tile in enumerate(
                         st.session_state.tiles):
-                    save_tile(
+                    tile_id = save_tile(
                         did, tile["prompt"], tile["config"],
                         idx, tile.get("width", "half"),
                         tile.get("height", 320),
@@ -666,6 +669,8 @@ elif st.session_state.page == "builder":
                         if st.session_state.df is not None
                         else None
                     )
+                    save_prompt_history(
+                        tile_id, tile["prompt"], tile["config"])
                     tiles_data.append({
                         "prompt": tile["prompt"],
                         "config": tile["config"],
@@ -681,6 +686,59 @@ elif st.session_state.page == "builder":
                 st.code(url, language=None)
 
     st.divider()
+
+    # ── REFRESH DATA ───────────────────────────────
+    if st.session_state.tiles:
+        with st.expander("🔄 Refresh Data", expanded=False):
+            st.caption(
+                "Upload a new CSV with the same columns to "
+                "update every chart's numbers without "
+                "rebuilding them."
+            )
+            refresh_file = st.file_uploader(
+                "New data for this dashboard",
+                type=["csv"],
+                key="refresh_uploader",
+                label_visibility="collapsed"
+            )
+            if refresh_file is not None:
+                new_df = pd.read_csv(refresh_file)
+                needed_cols = set()
+                for t in st.session_state.tiles:
+                    for field in ("x", "y", "y2", "color"):
+                        val = t["config"].get(field)
+                        if val and val != "count":
+                            needed_cols.add(val)
+                missing = needed_cols - set(new_df.columns)
+
+                if missing:
+                    st.error(
+                        f"New CSV is missing column(s) used "
+                        f"by your charts: {', '.join(missing)}. "
+                        f"Refresh cancelled."
+                    )
+                else:
+                    if st.button(
+                            "✅ Apply Refresh",
+                            type="primary",
+                            use_container_width=True):
+                        for i, t in enumerate(
+                                st.session_state.tiles):
+                            t["fig"] = build_chart(
+                                new_df, t["config"], i)
+                        st.session_state.df = new_df
+                        st.session_state.datasets[
+                            st.session_state.active_dataset
+                        ] = new_df
+                        st.session_state.schema_description = \
+                            None
+                        st.session_state.insight_stale = True
+                        st.success(
+                            "✅ Data refreshed! Click "
+                            "💾 Save or 🚀 Publish to persist "
+                            "it."
+                        )
+                        st.rerun()
 
     # ── Version history ───────────────────────────
     if st.session_state.current_dashboard_id:
@@ -771,6 +829,27 @@ elif st.session_state.page == "builder":
                             "margin:8px 0;'>",
                             unsafe_allow_html=True
                         )
+
+    # ── PROMPT HISTORY ─────────────────────────────
+    if st.session_state.current_dashboard_id:
+        history = get_dashboard_prompt_history(
+            st.session_state.current_dashboard_id)
+        if history:
+            with st.expander(
+                    f"📜 Prompt History · {len(history)} entries",
+                    expanded=False):
+                for h in history:
+                    cfg = json.loads(h["chart_config"])
+                    st.markdown(
+                        f"<p style='margin:6px 0 0;"
+                        f"font-size:13px;color:#1e293b;'>"
+                        f"<b>{h['prompt_text']}</b></p>"
+                        f"<p style='margin:0 0 8px;"
+                        f"font-size:12px;color:#94a3b8;'>"
+                        f"{cfg.get('chart_type', '')} · "
+                        f"{str(h['created_at'])[:16]}</p>",
+                        unsafe_allow_html=True
+                    )
 
     # ── DATA SOURCE ───────────────────────────────
     st.subheader("📁 Data Source")

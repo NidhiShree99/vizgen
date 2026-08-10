@@ -279,6 +279,24 @@ def save_prompt_history(tile_id, prompt_text, chart_config):
     conn.close()
 
 
+def get_dashboard_prompt_history(dashboard_id, limit=30):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """SELECT ph.prompt_text, ph.chart_config, ph.created_at,
+                  t.position
+           FROM prompt_history ph
+           JOIN tiles t ON t.id = ph.tile_id
+           WHERE t.dashboard_id = %s
+           ORDER BY ph.created_at DESC
+           LIMIT %s""",
+        (dashboard_id, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def save_version(dashboard_id, tiles_snapshot):
     conn = get_connection()
     c = conn.cursor()
