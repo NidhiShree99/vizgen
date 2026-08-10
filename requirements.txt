@@ -5,3 +5,5 @@ anthropic
 python-dotenv
 psycopg2-binary
 bcrypt
+kaleido==0.2.1
+fpdf2

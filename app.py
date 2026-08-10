@@ -18,6 +18,7 @@ from ai import (analyze_schema, generate_chart_config,
 from charts import build_chart
 from auth import show_auth
 from filters import apply_filters
+from pdf_export import generate_dashboard_pdf
 
 create_tables()
 
@@ -542,7 +543,8 @@ elif st.session_state.page == "builder":
 
     # ── STICKY TOP BAR ────────────────────────────
     with st.container():
-        col_title, col_save, col_pub = st.columns([4, 1, 1])
+        col_title, col_save, col_pub, col_pdf = st.columns(
+            [3.3, 1, 1, 1.2])
 
         with col_title:
             dash_name = (
@@ -684,6 +686,33 @@ elif st.session_state.page == "builder":
                     f"Published as "
                     f"**Version {version_num}**!")
                 st.code(url, language=None)
+
+        with col_pdf:
+            if st.session_state.tiles:
+                if st.button("📄 Export PDF",
+                              use_container_width=True,
+                              key="export_pdf_btn"):
+                    with st.spinner("Rendering PDF..."):
+                        name = (
+                            st.session_state
+                            .current_dashboard_name
+                            or "Untitled Dashboard"
+                        )
+                        pdf_bytes = generate_dashboard_pdf(
+                            name,
+                            st.session_state.tiles,
+                            st.session_state.dashboard_insight
+                        )
+                    st.download_button(
+                        "⬇️ Download PDF",
+                        data=pdf_bytes,
+                        file_name=(
+                            f"{name.replace(' ', '_')}.pdf"
+                        ),
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="download_pdf_btn"
+                    )
 
     st.divider()
 
