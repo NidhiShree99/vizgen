@@ -62,12 +62,6 @@ def show_auth():
         </div>
         """, unsafe_allow_html=True)
 
-        # Card container
-        st.markdown("""
-        <div style='background:white; border:1px solid #e2e8f0;
-             border-radius:16px; padding:32px; box-shadow:0 1px 3px rgba(0,0,0,0.06);'>
-        """, unsafe_allow_html=True)
-
         tab1, tab2 = st.tabs(["Login", "Sign Up"])
 
         with tab1:
@@ -114,5 +108,3 @@ def show_auth():
                         st.error("An account with this email already exists.")
                 else:
                     st.warning("Please fill in all fields.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
