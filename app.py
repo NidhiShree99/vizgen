@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import uuid
 import json
 import io
@@ -19,6 +20,7 @@ from charts import build_chart
 from auth import show_auth
 from filters import apply_filters
 from pdf_export import generate_dashboard_pdf
+from forecasting import generate_forecast
 
 create_tables()
 
@@ -113,6 +115,7 @@ def open_dashboard(dash):
     st.session_state.renaming = False
     st.session_state.active_filter = None
     st.session_state.chat_history = []
+    st.session_state.forecast_result = None
     st.session_state.tiles = load_dashboard_tiles(dash["id"])
 
 
@@ -224,6 +227,7 @@ defaults = {
     "user": None,
     "active_filter": None,
     "chat_history": [],
+    "forecast_result": None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -333,6 +337,7 @@ with st.sidebar:
         st.session_state.renaming = False
         st.session_state.active_filter = None
         st.session_state.chat_history = []
+        st.session_state.forecast_result = None
         st.rerun()
 
     if st.button("➕ New Dashboard",
@@ -351,6 +356,7 @@ with st.sidebar:
         st.session_state.renaming = False
         st.session_state.active_filter = None
         st.session_state.chat_history = []
+        st.session_state.forecast_result = None
         st.rerun()
 
     st.divider()
@@ -957,6 +963,7 @@ elif st.session_state.page == "builder":
                     = st.session_state.active_dataset
             st.session_state.active_filter = None
             st.session_state.chat_history = []
+            st.session_state.forecast_result = None
 
         if st.session_state.schema_description:
             st.info(st.session_state.schema_description)
@@ -1054,6 +1061,97 @@ elif st.session_state.page == "builder":
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer})
             st.rerun()
+
+        st.divider()
+
+        # ── FORECAST ───────────────────────────────
+        st.subheader("🔮 Forecast")
+        st.caption(
+            "Project a numeric column forward based on its "
+            "historical trend.")
+
+        numeric_cols = st.session_state.df.select_dtypes(
+            include="number").columns.tolist()
+
+        if not numeric_cols:
+            st.caption(
+                "No numeric columns available to forecast.")
+        else:
+            fc1, fc2, fc3, fc4 = st.columns([2, 2, 1, 1.3])
+            with fc1:
+                fc_time_col = st.selectbox(
+                    "Time column",
+                    st.session_state.df.columns.tolist(),
+                    key="forecast_time_col")
+            with fc2:
+                fc_value_col = st.selectbox(
+                    "Value to forecast",
+                    numeric_cols,
+                    key="forecast_value_col")
+            with fc3:
+                fc_periods = st.number_input(
+                    "Periods", min_value=1, max_value=12,
+                    value=3, key="forecast_periods")
+            with fc4:
+                st.markdown(
+                    "<div style='padding-top:28px;'>",
+                    unsafe_allow_html=True)
+                fc_clicked = st.button(
+                    "Generate Forecast", use_container_width=True,
+                    key="forecast_btn")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if fc_clicked:
+                with st.spinner("Fitting trend and forecasting..."):
+                    fc_result = generate_forecast(
+                        st.session_state.df, fc_time_col,
+                        fc_value_col, int(fc_periods))
+                st.session_state.forecast_result = fc_result
+
+            fc_result = st.session_state.get("forecast_result")
+            if fc_result:
+                if fc_result["status"] == "error":
+                    st.error(fc_result["message"])
+                else:
+                    fc_fig = go.Figure()
+                    fc_fig.add_trace(go.Scatter(
+                        x=fc_result["actual_labels"],
+                        y=fc_result["actual_values"],
+                        name="Actual", mode="lines+markers",
+                        line=dict(color="#6366f1", width=2)
+                    ))
+                    boundary_x = (
+                        [fc_result["actual_labels"][-1]]
+                        + fc_result["forecast_labels"]
+                    )
+                    boundary_y = (
+                        [fc_result["actual_values"][-1]]
+                        + fc_result["forecast_values"]
+                    )
+                    fc_fig.add_trace(go.Scatter(
+                        x=boundary_x, y=boundary_y,
+                        name="Forecast", mode="lines+markers",
+                        line=dict(
+                            color="#f59e0b", width=2, dash="dash")
+                    ))
+                    fc_fig.update_layout(
+                        title=(
+                            f"{fc_value_col} forecast — "
+                            f"next {int(fc_periods)} period(s)"
+                        ),
+                        paper_bgcolor="white",
+                        plot_bgcolor="#f8fafc",
+                        height=360,
+                        margin=dict(t=40, l=10, r=10, b=10),
+                    )
+                    st.plotly_chart(
+                        fc_fig, use_container_width=True)
+                    if not fc_result["used_real_dates"]:
+                        st.caption(
+                            "⚠️ Time column isn't a real date, so "
+                            "forecast periods are shown as steps "
+                            "ahead rather than calendar dates."
+                        )
 
         st.divider()
 
