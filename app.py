@@ -15,7 +15,8 @@ from ai import (analyze_schema, generate_chart_config,
                 generate_dashboard_insights,
                 generate_use_case_dashboard,
                 generate_filter_config,
-                answer_data_question)
+                answer_data_question,
+                generate_forecast_request)
 from charts import build_chart
 from auth import show_auth
 from filters import apply_filters
@@ -1067,8 +1068,9 @@ elif st.session_state.page == "builder":
         # ── FORECAST ───────────────────────────────
         st.subheader("🔮 Forecast")
         st.caption(
-            "Project a numeric column forward based on its "
-            "historical trend.")
+            "Describe what to forecast — AI picks the columns "
+            "and time horizon, then a statistical model does "
+            "the actual math.")
 
         numeric_cols = st.session_state.df.select_dtypes(
             include="number").columns.tolist()
@@ -1077,42 +1079,59 @@ elif st.session_state.page == "builder":
             st.caption(
                 "No numeric columns available to forecast.")
         else:
-            fc1, fc2, fc3, fc4 = st.columns([2, 2, 1, 1.3])
-            with fc1:
-                fc_time_col = st.selectbox(
-                    "Time column",
-                    st.session_state.df.columns.tolist(),
-                    key="forecast_time_col")
-            with fc2:
-                fc_value_col = st.selectbox(
-                    "Value to forecast",
-                    numeric_cols,
-                    key="forecast_value_col")
-            with fc3:
-                fc_periods = st.number_input(
-                    "Periods", min_value=1, max_value=12,
-                    value=3, key="forecast_periods")
-            with fc4:
-                st.markdown(
-                    "<div style='padding-top:28px;'>",
-                    unsafe_allow_html=True)
+            fcol, fbtn = st.columns([4, 1])
+            with fcol:
+                forecast_prompt = st.text_input(
+                    "Describe what to forecast",
+                    placeholder=(
+                        "e.g. forecast revenue for the next "
+                        "6 months"
+                    ),
+                    label_visibility="collapsed",
+                    key="forecast_prompt_input"
+                )
+            with fbtn:
                 fc_clicked = st.button(
-                    "Generate Forecast", use_container_width=True,
-                    key="forecast_btn")
-                st.markdown("</div>", unsafe_allow_html=True)
+                    "Generate Forecast", use_container_width=True)
 
             if fc_clicked:
-                with st.spinner("Fitting trend and forecasting..."):
-                    fc_result = generate_forecast(
-                        st.session_state.df, fc_time_col,
-                        fc_value_col, int(fc_periods))
-                st.session_state.forecast_result = fc_result
+                if not forecast_prompt.strip():
+                    st.warning("Describe what to forecast first.")
+                else:
+                    with st.spinner("AI is reading your request..."):
+                        fc_request = generate_forecast_request(
+                            st.session_state.df, forecast_prompt)
+
+                    if fc_request.get("status") == "error":
+                        st.error(
+                            f"🤔 {fc_request.get('message', 'Could not set up that forecast.')}"
+                        )
+                        st.session_state.forecast_result = None
+                    else:
+                        with st.spinner(
+                                "Fitting trend and forecasting..."):
+                            fc_result = generate_forecast(
+                                st.session_state.df,
+                                fc_request["time_column"],
+                                fc_request["value_column"],
+                                int(fc_request.get("periods", 3))
+                            )
+                        fc_result["value_column"] = \
+                            fc_request["value_column"]
+                        fc_result["periods"] = \
+                            fc_request.get("periods", 3)
+                        fc_result["description"] = \
+                            fc_request.get("description", "")
+                        st.session_state.forecast_result = fc_result
 
             fc_result = st.session_state.get("forecast_result")
             if fc_result:
                 if fc_result["status"] == "error":
                     st.error(fc_result["message"])
                 else:
+                    if fc_result.get("description"):
+                        st.caption(f"🔮 {fc_result['description']}")
+
                     fc_fig = go.Figure()
                     fc_fig.add_trace(go.Scatter(
                         x=fc_result["actual_labels"],
@@ -1136,8 +1155,9 @@ elif st.session_state.page == "builder":
                     ))
                     fc_fig.update_layout(
                         title=(
-                            f"{fc_value_col} forecast — "
-                            f"next {int(fc_periods)} period(s)"
+                            f"{fc_result['value_column']} forecast "
+                            f"— next {fc_result['periods']} "
+                            f"period(s)"
                         ),
                         paper_bgcolor="white",
                         plot_bgcolor="#f8fafc",

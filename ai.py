@@ -299,6 +299,64 @@ Be specific with real numbers. Never use vague language.
     return json.loads(raw)
 
 
+def generate_forecast_request(df, forecast_prompt):
+    """
+    Parse a natural-language forecasting request into a concrete
+    time column, value column, and number of periods. The actual
+    forecasting math is done separately by forecasting.py — this
+    only interprets intent, never computes numbers itself.
+    """
+    columns = df.columns.tolist()
+    dtypes = df.dtypes.astype(str).to_dict()
+    sample = df.head(5).to_string()
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=250,
+        messages=[{
+            "role": "user",
+            "content": f"""
+You are helping configure a time-series forecast.
+
+Dataset columns: {columns}
+Column types: {dtypes}
+Numeric columns (only these can be forecasted): {numeric_cols}
+Sample data:
+{sample}
+
+User request: "{forecast_prompt}"
+
+RULES:
+1. time_column must be a real column name that represents time
+   (a date, month, year, or similar sequential column).
+2. value_column must be one of the numeric columns listed above —
+   the metric the user wants to forecast.
+3. periods is how many future steps to forecast. Infer a
+   reasonable number from the request (e.g. "next 6 months" -> 6,
+   "next quarter" -> 3). Default to 3 if not specified.
+4. If no plausible time column or numeric value column exists,
+   return {{"status": "error", "message": "short reason"}}.
+
+Return ONLY this JSON:
+{{
+    "status": "ok",
+    "time_column": "column_name",
+    "value_column": "column_name",
+    "periods": 3,
+    "description": "short human-readable summary of the forecast"
+}}
+
+No markdown. No explanation. Raw JSON only.
+            """
+        }]
+    )
+
+    raw = message.content[0].text.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(raw)
+
+
 def answer_data_question(df, question, history=None):
     """
     Answer a natural-language question about the dataset,
