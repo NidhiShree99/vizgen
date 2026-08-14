@@ -114,6 +114,17 @@ def get_user_by_email(email):
     return dict(row) if row else None
 
 
+def update_user_password(email, password_hash):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE users SET password_hash = %s WHERE email = %s",
+        (password_hash, email)
+    )
+    conn.commit()
+    conn.close()
+
+
 def save_dashboard(name, user_id, status="draft", share_token=None):
     conn = get_connection()
     c = conn.cursor()

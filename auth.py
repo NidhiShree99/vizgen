@@ -1,5 +1,5 @@
 import bcrypt
-from db import create_user, get_user_by_email
+from db import create_user, get_user_by_email, update_user_password
 import streamlit as st
 
 def hash_password(password):
@@ -65,25 +65,66 @@ def show_auth():
         tab1, tab2 = st.tabs(["Login", "Sign Up"])
 
         with tab1:
-            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-            email = st.text_input("Email address", key="login_email",
-                                   placeholder="you@example.com")
-            password = st.text_input("Password", type="password",
-                                      key="login_pass",
-                                      placeholder="Enter your password")
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            if "show_reset" not in st.session_state:
+                st.session_state.show_reset = False
 
-            if st.button("Login →", use_container_width=True, type="primary",
-                          key="login_btn"):
-                if email and password:
-                    user = get_user_by_email(email)
-                    if user and verify_password(password, user["password_hash"]):
-                        st.session_state.user = user
-                        st.rerun()
+            if not st.session_state.show_reset:
+                st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                email = st.text_input("Email address", key="login_email",
+                                       placeholder="you@example.com")
+                password = st.text_input("Password", type="password",
+                                          key="login_pass",
+                                          placeholder="Enter your password")
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                if st.button("Login →", use_container_width=True, type="primary",
+                              key="login_btn"):
+                    if email and password:
+                        user = get_user_by_email(email)
+                        if user and verify_password(password, user["password_hash"]):
+                            st.session_state.user = user
+                            st.rerun()
+                        else:
+                            st.error("Invalid email or password.")
                     else:
-                        st.error("Invalid email or password.")
-                else:
-                    st.warning("Please fill in all fields.")
+                        st.warning("Please fill in all fields.")
+
+                if st.button("Forgot password?", key="forgot_pw_link"):
+                    st.session_state.show_reset = True
+                    st.rerun()
+
+            else:
+                st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                st.caption("Enter your email and choose a new password.")
+                reset_email = st.text_input("Email address", key="reset_email",
+                                             placeholder="you@example.com")
+                new_password = st.text_input("New password", type="password",
+                                              key="reset_new_pass",
+                                              placeholder="Enter a new password")
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    if st.button("Reset password", use_container_width=True,
+                                  type="primary", key="reset_pw_btn"):
+                        if reset_email and new_password:
+                            user = get_user_by_email(reset_email)
+                            if user:
+                                update_user_password(
+                                    reset_email, hash_password(new_password))
+                                st.session_state.show_reset = False
+                                st.success(
+                                    "Password reset! You can log in now.")
+                            else:
+                                st.error(
+                                    "No account found with that email.")
+                        else:
+                            st.warning("Please fill in all fields.")
+                with rc2:
+                    if st.button("Back to login", use_container_width=True,
+                                  key="cancel_reset_btn"):
+                        st.session_state.show_reset = False
+                        st.rerun()
 
         with tab2:
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
