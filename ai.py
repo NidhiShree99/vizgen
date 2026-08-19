@@ -357,6 +357,68 @@ No markdown. No explanation. Raw JSON only.
     return json.loads(raw)
 
 
+def generate_optimization_request(df, optimize_prompt):
+    """
+    Parse a natural-language budget-allocation request into a
+    concrete category column, value column to maximize, and total
+    budget. The actual optimization math is done separately by
+    optimizer.py (PuLP) — this only interprets intent, never
+    computes the allocation itself.
+    """
+    columns = df.columns.tolist()
+    dtypes = df.dtypes.astype(str).to_dict()
+    sample = df.head(5).to_string()
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=250,
+        messages=[{
+            "role": "user",
+            "content": f"""
+You are helping configure a budget allocation optimization.
+
+Dataset columns: {columns}
+Column types: {dtypes}
+Numeric columns (only these can be maximized): {numeric_cols}
+Sample data:
+{sample}
+
+User request: "{optimize_prompt}"
+
+RULES:
+1. category_column must be a real column name representing the
+   groups to allocate budget across (e.g. region, product, channel).
+   It should have a small number of repeated distinct values, not
+   a unique ID per row.
+2. value_column must be one of the numeric columns listed above —
+   the historical performance metric to maximize (e.g. revenue,
+   conversions, profit).
+3. total_budget is the dollar amount to allocate, parsed from the
+   request (e.g. "$100,000" -> 100000, "50k" -> 50000).
+4. If no plausible category column, numeric value column, or budget
+   amount can be found, return
+   {{"status": "error", "message": "short reason"}}.
+
+Return ONLY this JSON:
+{{
+    "status": "ok",
+    "category_column": "column_name",
+    "value_column": "column_name",
+    "total_budget": 100000,
+    "description": "short human-readable summary of the goal"
+}}
+
+No markdown. No explanation. Raw JSON only.
+            """
+        }]
+    )
+
+    raw = message.content[0].text.strip()
+    raw = raw.replace("```json", "").replace("```", "").strip()
+    return json.loads(raw)
+
+
 def answer_data_question(df, question, history=None):
     """
     Answer a natural-language question about the dataset,

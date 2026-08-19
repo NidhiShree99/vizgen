@@ -16,12 +16,14 @@ from ai import (analyze_schema, generate_chart_config,
                 generate_use_case_dashboard,
                 generate_filter_config,
                 answer_data_question,
-                generate_forecast_request)
+                generate_forecast_request,
+                generate_optimization_request)
 from charts import build_chart
 from auth import show_auth
 from filters import apply_filters
 from pdf_export import generate_dashboard_pdf
 from forecasting import generate_forecast
+from optimizer import optimize_budget_allocation
 
 create_tables()
 
@@ -117,6 +119,7 @@ def open_dashboard(dash):
     st.session_state.active_filter = None
     st.session_state.chat_history = []
     st.session_state.forecast_result = None
+    st.session_state.optimize_result = None
     st.session_state.tiles = load_dashboard_tiles(dash["id"])
 
 
@@ -229,6 +232,7 @@ defaults = {
     "active_filter": None,
     "chat_history": [],
     "forecast_result": None,
+    "optimize_result": None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -339,6 +343,7 @@ with st.sidebar:
         st.session_state.active_filter = None
         st.session_state.chat_history = []
         st.session_state.forecast_result = None
+        st.session_state.optimize_result = None
         st.rerun()
 
     if st.button("➕ New Dashboard",
@@ -358,6 +363,7 @@ with st.sidebar:
         st.session_state.active_filter = None
         st.session_state.chat_history = []
         st.session_state.forecast_result = None
+        st.session_state.optimize_result = None
         st.rerun()
 
     st.divider()
@@ -965,6 +971,7 @@ elif st.session_state.page == "builder":
             st.session_state.active_filter = None
             st.session_state.chat_history = []
             st.session_state.forecast_result = None
+            st.session_state.optimize_result = None
 
         if st.session_state.schema_description:
             st.info(st.session_state.schema_description)
@@ -1172,6 +1179,104 @@ elif st.session_state.page == "builder":
                             "forecast periods are shown as steps "
                             "ahead rather than calendar dates."
                         )
+
+        st.divider()
+
+        # ── OPTIMIZE ────────────────────────────────
+        st.subheader("🧮 Optimize")
+        st.caption(
+            "Describe a budget to allocate — AI picks the "
+            "category and metric, then a linear programming "
+            "solver computes the actual split."
+        )
+
+        numeric_cols_opt = st.session_state.df.select_dtypes(
+            include="number").columns.tolist()
+
+        if not numeric_cols_opt:
+            st.caption(
+                "No numeric columns available to optimize.")
+        else:
+            ocol, obtn = st.columns([4, 1])
+            with ocol:
+                optimize_prompt = st.text_input(
+                    "Describe the budget to allocate",
+                    placeholder=(
+                        "e.g. allocate $100,000 across regions "
+                        "to maximize revenue"
+                    ),
+                    label_visibility="collapsed",
+                    key="optimize_prompt_input"
+                )
+            with obtn:
+                opt_clicked = st.button(
+                    "Optimize", use_container_width=True,
+                    key="optimize_btn")
+
+            if opt_clicked:
+                if not optimize_prompt.strip():
+                    st.warning(
+                        "Describe the budget to allocate first.")
+                else:
+                    with st.spinner("AI is reading your request..."):
+                        opt_request = generate_optimization_request(
+                            st.session_state.df, optimize_prompt)
+
+                    if opt_request.get("status") == "error":
+                        st.error(
+                            f"🤔 {opt_request.get('message', 'Could not set up that optimization.')}"
+                        )
+                        st.session_state.optimize_result = None
+                    else:
+                        with st.spinner("Solving..."):
+                            opt_result = optimize_budget_allocation(
+                                st.session_state.df,
+                                opt_request["category_column"],
+                                opt_request["value_column"],
+                                opt_request.get("total_budget")
+                            )
+                        opt_result["description"] = \
+                            opt_request.get("description", "")
+                        st.session_state.optimize_result = opt_result
+
+            opt_result = st.session_state.get("optimize_result")
+            if opt_result:
+                if opt_result["status"] == "error":
+                    st.error(opt_result["message"])
+                else:
+                    if opt_result.get("description"):
+                        st.caption(f"🧮 {opt_result['description']}")
+
+                    alloc = opt_result["allocations"]
+                    opt_fig = go.Figure(go.Bar(
+                        x=[a["category"] for a in alloc],
+                        y=[a["amount"] for a in alloc],
+                        marker_color="#6366f1",
+                        text=[
+                            f"${a['amount']:,.0f}" for a in alloc],
+                        textposition="outside",
+                    ))
+                    opt_fig.update_layout(
+                        title=(
+                            f"Optimal allocation of "
+                            f"${opt_result['total_budget']:,.0f} "
+                            f"across {opt_result['category_column']}"
+                        ),
+                        paper_bgcolor="white",
+                        plot_bgcolor="#f8fafc",
+                        height=360,
+                        margin=dict(t=40, l=10, r=10, b=10),
+                    )
+                    st.plotly_chart(
+                        opt_fig, use_container_width=True)
+                    st.caption(
+                        "No single category can receive more than "
+                        "50% of the budget, so the solver has to "
+                        "genuinely diversify rather than putting "
+                        "everything into the top performer. "
+                        "Allocation is weighted by each category's "
+                        f"historical average {opt_result['value_column']}."
+                    )
 
         st.divider()
 

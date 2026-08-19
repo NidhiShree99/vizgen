@@ -8,3 +8,4 @@ bcrypt
 kaleido==0.2.1
 fpdf2
 statsmodels
+pulp
