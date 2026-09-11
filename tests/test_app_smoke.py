@@ -110,6 +110,66 @@ def test_builder_without_data_hides_the_ai_tools(stub_backend):
     assert "Optimize" not in headings
 
 
+def _loaded_dataset():
+    import pandas as pd
+    return pd.DataFrame({
+        "region": ["North", "South", "East", "West"],
+        "revenue": [45000, 32000, 67000, 28000],
+        "month": ["2024-01-01", "2024-02-01",
+                  "2024-03-01", "2024-04-01"],
+    })
+
+
+def test_builder_with_data_renders_every_ai_tool(stub_backend):
+    """
+    Exercises the builder modules that only appear once a dataset is
+    loaded — chat, forecast and optimize each live in their own
+    module, so this is what catches a broken split.
+    """
+    df = _loaded_dataset()
+    at = run_app(
+        user=USER,
+        page="builder",
+        df=df,
+        datasets={"sample.csv": df},
+        active_dataset="sample.csv",
+        active_dataset_analyzed="sample.csv",
+        schema_description="A test dataset.",
+    )
+    assert not at.exception
+
+    headings = " ".join(s.value for s in at.subheader)
+    for section in ("Ask Your Data", "Forecast", "Optimize",
+                    "Business Use Case Mode", "Add a Chart"):
+        assert section in headings, f"{section} did not render"
+
+
+def test_builder_with_data_renders_the_tile_canvas(stub_backend):
+    """Canvas lives in its own module and only shows with tiles."""
+    df = _loaded_dataset()
+    from charts import build_chart
+
+    config = {"chart_type": "bar", "x": "region", "y": "revenue",
+              "title": "Revenue by Region"}
+    tile = {"prompt": "revenue by region", "config": config,
+            "fig": build_chart(df, config, 0), "width": "half",
+            "height": 320, "dataset_name": "sample.csv"}
+
+    at = run_app(
+        user=USER,
+        page="builder",
+        df=df,
+        datasets={"sample.csv": df},
+        active_dataset="sample.csv",
+        active_dataset_analyzed="sample.csv",
+        schema_description="A test dataset.",
+        tiles=[tile],
+    )
+    assert not at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "tile(s) on canvas" in captions
+
+
 def test_logging_out_returns_to_the_login_form(stub_backend):
     at = run_app(user=USER)
     logout = [b for b in at.sidebar.button if "Log out" in b.label]
