@@ -83,6 +83,19 @@ def create_tables():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS api_usage (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            called_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_api_usage_user_day
+        ON api_usage (user_id, called_at)
+    """)
+
     conn.commit()
     conn.close()
 
@@ -120,6 +133,32 @@ def update_user_password(email, password_hash):
     c.execute(
         "UPDATE users SET password_hash = %s WHERE email = %s",
         (password_hash, email)
+    )
+    conn.commit()
+    conn.close()
+
+
+def count_api_calls_today(user_id):
+    """How many AI calls this user has made in the last 24 hours."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT COUNT(*) AS n FROM api_usage "
+        "WHERE user_id = %s "
+        "AND called_at > NOW() - INTERVAL '24 hours'",
+        (user_id,)
+    )
+    row = c.fetchone()
+    conn.close()
+    return row["n"] if row else 0
+
+
+def record_api_call(user_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO api_usage (user_id) VALUES (%s)",
+        (user_id,)
     )
     conn.commit()
     conn.close()

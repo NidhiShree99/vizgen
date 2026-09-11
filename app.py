@@ -24,6 +24,7 @@ from filters import apply_filters
 from pdf_export import generate_dashboard_pdf
 from forecasting import generate_forecast
 from optimizer import optimize_budget_allocation
+from quota import try_consume, usage
 
 create_tables()
 
@@ -66,6 +67,31 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+def ai_budget_ok(user_id=None, quiet=False):
+    """
+    Reserve one AI call against a user's daily quota before calling
+    the Claude API. Returns False (and surfaces an error) when the
+    user is out of budget, so the caller must skip the API call.
+
+    user_id is passed explicitly for the public share view, where
+    there is no logged-in user and usage is billed to the dashboard
+    owner instead.
+    """
+    uid = user_id
+    if uid is None:
+        current = st.session_state.get("user")
+        uid = current["id"] if current else None
+
+    allowed, used, limit = try_consume(uid)
+    if not allowed and not quiet:
+        st.error(
+            f"Daily AI limit reached ({limit} requests per 24 "
+            f"hours). This resets on a rolling basis — try again "
+            f"later."
+        )
+    return allowed
 
 
 def load_dashboard_tiles(dashboard_id):
@@ -277,10 +303,13 @@ if "share" in params:
                     for t in tiles
                 ]
                 if st.button("📝 Generate Executive Summary"):
-                    with st.spinner("Analyzing dashboard..."):
-                        insight = generate_dashboard_insights(
-                            tile_objs, df_pub)
-                    st.session_state.pub_insight = insight
+                    # No logged-in user here — this page is public,
+                    # so the cost is billed to the dashboard owner.
+                    if ai_budget_ok(dashboard.get("user_id")):
+                        with st.spinner("Analyzing dashboard..."):
+                            insight = generate_dashboard_insights(
+                                tile_objs, df_pub)
+                        st.session_state.pub_insight = insight
 
                 if ("pub_insight" in st.session_state
                         and st.session_state.pub_insight):
@@ -328,6 +357,10 @@ with st.sidebar:
         st.session_state.user = None
         st.session_state.page = "home"
         st.rerun()
+
+    ai_used, ai_limit = usage(st.session_state.user["id"])
+    st.caption(f"⚡ AI usage: {ai_used}/{ai_limit} today")
+
     st.divider()
 
     if st.button("🏠 Home", use_container_width=True):
@@ -963,11 +996,19 @@ elif st.session_state.page == "builder":
                 or st.session_state.get(
                     "active_dataset_analyzed")
                 != st.session_state.active_dataset):
-            with st.spinner("Analyzing dataset..."):
-                st.session_state.schema_description = \
-                    analyze_schema(raw_df)
-                st.session_state.active_dataset_analyzed \
-                    = st.session_state.active_dataset
+            # Fires automatically on upload, so stay quiet when out
+            # of quota rather than showing an error on every rerun.
+            if ai_budget_ok(quiet=True):
+                with st.spinner("Analyzing dataset..."):
+                    st.session_state.schema_description = \
+                        analyze_schema(raw_df)
+            else:
+                st.session_state.schema_description = (
+                    "Daily AI limit reached — dataset loaded, but "
+                    "the AI summary is unavailable right now."
+                )
+            st.session_state.active_dataset_analyzed \
+                = st.session_state.active_dataset
             st.session_state.active_filter = None
             st.session_state.chat_history = []
             st.session_state.forecast_result = None
@@ -1001,6 +1042,8 @@ elif st.session_state.page == "builder":
         if apply_filter_clicked:
             if not filter_prompt.strip():
                 st.warning("Describe a filter first.")
+            elif not ai_budget_ok():
+                pass
             else:
                 with st.spinner("AI is applying your filter..."):
                     filter_config = generate_filter_config(
@@ -1060,15 +1103,16 @@ elif st.session_state.page == "builder":
             "e.g. Which region grew the fastest?")
 
         if question:
-            st.session_state.chat_history.append(
-                {"role": "user", "content": question})
-            with st.spinner("Thinking..."):
-                answer = answer_data_question(
-                    st.session_state.df, question,
-                    st.session_state.chat_history)
-            st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer})
-            st.rerun()
+            if ai_budget_ok():
+                st.session_state.chat_history.append(
+                    {"role": "user", "content": question})
+                with st.spinner("Thinking..."):
+                    answer = answer_data_question(
+                        st.session_state.df, question,
+                        st.session_state.chat_history)
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": answer})
+                st.rerun()
 
         st.divider()
 
@@ -1104,6 +1148,8 @@ elif st.session_state.page == "builder":
             if fc_clicked:
                 if not forecast_prompt.strip():
                     st.warning("Describe what to forecast first.")
+                elif not ai_budget_ok():
+                    pass
                 else:
                     with st.spinner("AI is reading your request..."):
                         fc_request = generate_forecast_request(
@@ -1217,6 +1263,8 @@ elif st.session_state.page == "builder":
                 if not optimize_prompt.strip():
                     st.warning(
                         "Describe the budget to allocate first.")
+                elif not ai_budget_ok():
+                    pass
                 else:
                     with st.spinner("AI is reading your request..."):
                         opt_request = generate_optimization_request(
@@ -1328,6 +1376,8 @@ elif st.session_state.page == "builder":
             if use_case == "— Pick a use case —":
                 st.warning(
                     "Please pick a business use case.")
+            elif not ai_budget_ok():
+                pass
             else:
                 with st.spinner(
                         f"AI is building a {use_case} "
@@ -1417,6 +1467,8 @@ elif st.session_state.page == "builder":
             if not prompt.strip():
                 st.warning(
                     "Please describe what you want.")
+            elif not ai_budget_ok():
+                pass
             else:
                 with st.spinner(
                         "AI is building your chart..."):
@@ -1474,13 +1526,14 @@ elif st.session_state.page == "builder":
 
             if st.button(btn_label,
                           use_container_width=True):
-                with st.spinner("AI is analyzing..."):
-                    insight = generate_dashboard_insights(
-                        st.session_state.tiles,
-                        st.session_state.df
-                    )
-                st.session_state.dashboard_insight = insight
-                st.session_state.insight_stale = False
+                if ai_budget_ok():
+                    with st.spinner("AI is analyzing..."):
+                        insight = generate_dashboard_insights(
+                            st.session_state.tiles,
+                            st.session_state.df
+                        )
+                    st.session_state.dashboard_insight = insight
+                    st.session_state.insight_stale = False
 
             if st.session_state.dashboard_insight:
                 render_insight(
@@ -1513,7 +1566,8 @@ elif st.session_state.page == "builder":
                             if st.button(
                                     "🔄 Regen",
                                     key=f"rg_{i}",
-                                    use_container_width=True):
+                                    use_container_width=True) \
+                                    and ai_budget_ok():
                                 regen_df = (
                                     st.session_state
                                     .datasets.get(
@@ -1589,7 +1643,8 @@ elif st.session_state.page == "builder":
                                     if st.button(
                                             "🔄 Regen",
                                             key=f"rg_{idx}",
-                                            use_container_width=True):
+                                            use_container_width=True) \
+                                            and ai_budget_ok():
                                         regen_df = (
                                             st.session_state
                                             .datasets.get(
