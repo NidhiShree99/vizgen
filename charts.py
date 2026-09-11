@@ -2,12 +2,96 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
+from forecasting import generate_forecast
+from optimizer import optimize_budget_allocation
+
 COLORS = ["#6366f1", "#10b981", "#f59e0b",
           "#ef4444", "#3b82f6", "#8b5cf6"]
 
 
+def _empty_chart(message):
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message, showarrow=False,
+        font=dict(size=13, color="#94a3b8"))
+    fig.update_layout(
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        paper_bgcolor="white", plot_bgcolor="#f8fafc", height=320)
+    return fig
+
+
+def build_forecast_chart(df, config):
+    """
+    Rebuild a forecast tile from its stored parameters.
+
+    The AI call that chose these columns happened once, when the
+    tile was created; recomputing here is pure statistics, so a
+    saved forecast costs nothing to reload and re-forecasts
+    automatically when the underlying data is refreshed.
+    """
+    result = generate_forecast(
+        df, config["time_column"], config["value_column"],
+        int(config.get("periods", 3)))
+
+    if result["status"] != "ok":
+        return _empty_chart(result.get("message", "Forecast failed"))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=result["actual_labels"], y=result["actual_values"],
+        name="Actual", mode="lines+markers",
+        line=dict(color="#6366f1", width=2)
+    ))
+    fig.add_trace(go.Scatter(
+        x=[result["actual_labels"][-1]] + result["forecast_labels"],
+        y=[result["actual_values"][-1]] + result["forecast_values"],
+        name="Forecast", mode="lines+markers",
+        line=dict(color="#f59e0b", width=2, dash="dash")
+    ))
+    fig.update_layout(
+        title=config.get("title", "Forecast"),
+        paper_bgcolor="white", plot_bgcolor="#f8fafc",
+        height=360, margin=dict(t=40, l=10, r=10, b=10),
+    )
+    return fig
+
+
+def build_allocation_chart(df, config):
+    """Rebuild a budget-allocation tile by re-solving the LP."""
+    result = optimize_budget_allocation(
+        df, config["category_column"], config["value_column"],
+        config.get("total_budget"))
+
+    if result["status"] != "ok":
+        return _empty_chart(
+            result.get("message", "Optimization failed"))
+
+    alloc = result["allocations"]
+    fig = go.Figure(go.Bar(
+        x=[a["category"] for a in alloc],
+        y=[a["amount"] for a in alloc],
+        marker_color="#6366f1",
+        text=[f"${a['amount']:,.0f}" for a in alloc],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        title=config.get("title", "Optimal allocation"),
+        paper_bgcolor="white", plot_bgcolor="#f8fafc",
+        height=360, margin=dict(t=40, l=10, r=10, b=10),
+    )
+    return fig
+
+
 def build_chart(df, config, tile_index=0):
     chart_type = config["chart_type"]
+
+    # Analytical tiles carry their own parameters rather than the
+    # x/y/color shape the plotting types below expect.
+    if chart_type == "forecast":
+        return build_forecast_chart(df, config)
+    if chart_type == "allocation":
+        return build_allocation_chart(df, config)
+
     x = config["x"]
     y = config["y"]
     y2 = config.get("y2")

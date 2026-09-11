@@ -170,6 +170,91 @@ def test_builder_with_data_renders_the_tile_canvas(stub_backend):
     assert "tile(s) on canvas" in captions
 
 
+def _builder_with_data(**extra):
+    df = _loaded_dataset()
+    return run_app(
+        user=USER,
+        page="builder",
+        df=df,
+        datasets={"sample.csv": df},
+        active_dataset="sample.csv",
+        active_dataset_analyzed="sample.csv",
+        schema_description="A test dataset.",
+        **extra,
+    )
+
+
+def test_forecast_result_can_be_added_to_the_dashboard(stub_backend):
+    """
+    A forecast used to render and vanish. It must now be promotable
+    to a real tile so it survives save, publish and PDF export.
+    """
+    from forecasting import generate_forecast
+
+    result = generate_forecast(
+        _loaded_dataset(), "month", "revenue", 2)
+    result.update({"time_column": "month",
+                   "value_column": "revenue",
+                   "periods": 2,
+                   "description": "revenue forecast"})
+
+    at = _builder_with_data(forecast_result=result)
+    assert not at.exception
+    assert at.session_state["tiles"] == []
+
+    add = [b for b in at.button
+           if "Add forecast to dashboard" in b.label]
+    assert add, "no control to keep the forecast"
+
+    at = add[0].click().run()
+    assert not at.exception
+
+    tiles = at.session_state["tiles"]
+    assert len(tiles) == 1
+    assert tiles[0]["config"]["chart_type"] == "forecast"
+    assert tiles[0]["config"]["time_column"] == "month"
+    assert tiles[0]["config"]["periods"] == 2
+
+
+def test_allocation_result_can_be_added_to_the_dashboard(stub_backend):
+    from optimizer import optimize_budget_allocation
+
+    result = optimize_budget_allocation(
+        _loaded_dataset(), "region", "revenue", 80000)
+    result["description"] = "allocate $80,000 across regions"
+
+    at = _builder_with_data(optimize_result=result)
+    assert not at.exception
+
+    add = [b for b in at.button
+           if "Add allocation to dashboard" in b.label]
+    assert add, "no control to keep the allocation"
+
+    at = add[0].click().run()
+    assert not at.exception
+
+    tiles = at.session_state["tiles"]
+    assert len(tiles) == 1
+    assert tiles[0]["config"]["chart_type"] == "allocation"
+    assert tiles[0]["config"]["total_budget"] == 80000
+
+
+def test_adding_an_analytical_tile_marks_the_summary_stale(stub_backend):
+    """Adding a tile changes the dashboard, so the AI summary ages."""
+    from optimizer import optimize_budget_allocation
+
+    result = optimize_budget_allocation(
+        _loaded_dataset(), "region", "revenue", 80000)
+    at = _builder_with_data(
+        optimize_result=result,
+        dashboard_insight={"holistic_summary": "old"},
+    )
+    add = [b for b in at.button
+           if "Add allocation to dashboard" in b.label]
+    at = add[0].click().run()
+    assert at.session_state["insight_stale"] is True
+
+
 def test_logging_out_returns_to_the_login_form(stub_backend):
     at = run_app(user=USER)
     logout = [b for b in at.sidebar.button if "Log out" in b.label]

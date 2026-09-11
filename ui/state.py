@@ -1,5 +1,11 @@
+import copy
+
 import streamlit as st
 
+# Mutable entries here (tiles, datasets, chat_history) must never be
+# handed out by reference: DEFAULTS lives for the life of the
+# process, so a session appending to the same list object would leak
+# its contents into every session initialised afterwards.
 DEFAULTS = {
     "page": "home",
     "tiles": [],
@@ -24,4 +30,4 @@ DEFAULTS = {
 def init_session_state():
     for key, value in DEFAULTS.items():
         if key not in st.session_state:
-            st.session_state[key] = value
+            st.session_state[key] = copy.deepcopy(value)

@@ -1,8 +1,8 @@
-import plotly.graph_objects as go
 import streamlit as st
 
 from ai import (answer_data_question, generate_forecast_request,
                 generate_optimization_request)
+from charts import build_chart
 from forecasting import generate_forecast
 from optimizer import optimize_budget_allocation
 from ui.helpers import ai_budget_ok
@@ -91,6 +91,8 @@ def render():
                             fc_request["value_column"],
                             int(fc_request.get("periods", 3))
                         )
+                    fc_result["time_column"] = \
+                        fc_request["time_column"]
                     fc_result["value_column"] = \
                         fc_request["value_column"]
                     fc_result["periods"] = \
@@ -107,38 +109,18 @@ def render():
                 if fc_result.get("description"):
                     st.caption(f"🔮 {fc_result['description']}")
 
-                fc_fig = go.Figure()
-                fc_fig.add_trace(go.Scatter(
-                    x=fc_result["actual_labels"],
-                    y=fc_result["actual_values"],
-                    name="Actual", mode="lines+markers",
-                    line=dict(color="#6366f1", width=2)
-                ))
-                boundary_x = (
-                    [fc_result["actual_labels"][-1]]
-                    + fc_result["forecast_labels"]
-                )
-                boundary_y = (
-                    [fc_result["actual_values"][-1]]
-                    + fc_result["forecast_values"]
-                )
-                fc_fig.add_trace(go.Scatter(
-                    x=boundary_x, y=boundary_y,
-                    name="Forecast", mode="lines+markers",
-                    line=dict(
-                        color="#f59e0b", width=2, dash="dash")
-                ))
-                fc_fig.update_layout(
-                    title=(
+                fc_config = {
+                    "chart_type": "forecast",
+                    "time_column": fc_result["time_column"],
+                    "value_column": fc_result["value_column"],
+                    "periods": fc_result["periods"],
+                    "title": (
                         f"{fc_result['value_column']} forecast "
                         f"— next {fc_result['periods']} "
                         f"period(s)"
                     ),
-                    paper_bgcolor="white",
-                    plot_bgcolor="#f8fafc",
-                    height=360,
-                    margin=dict(t=40, l=10, r=10, b=10),
-                )
+                }
+                fc_fig = build_chart(st.session_state.df, fc_config)
                 st.plotly_chart(
                     fc_fig, use_container_width=True)
                 if not fc_result["used_real_dates"]:
@@ -147,6 +129,23 @@ def render():
                         "forecast periods are shown as steps "
                         "ahead rather than calendar dates."
                     )
+
+                if st.button("➕ Add forecast to dashboard",
+                             key="add_forecast_tile"):
+                    st.session_state.tiles.append({
+                        "prompt": fc_result.get(
+                            "description", "Forecast"),
+                        "config": fc_config,
+                        "fig": fc_fig,
+                        "width": "half",
+                        "height": 320,
+                        "dataset_name":
+                            st.session_state.active_dataset,
+                    })
+                    st.session_state.insight_stale = True
+                    st.success(
+                        "Added — save or publish to keep it.")
+                    st.rerun()
 
     st.divider()
 
@@ -217,26 +216,20 @@ def render():
                 if opt_result.get("description"):
                     st.caption(f"🧮 {opt_result['description']}")
 
-                alloc = opt_result["allocations"]
-                opt_fig = go.Figure(go.Bar(
-                    x=[a["category"] for a in alloc],
-                    y=[a["amount"] for a in alloc],
-                    marker_color="#6366f1",
-                    text=[
-                        f"${a['amount']:,.0f}" for a in alloc],
-                    textposition="outside",
-                ))
-                opt_fig.update_layout(
-                    title=(
+                opt_config = {
+                    "chart_type": "allocation",
+                    "category_column":
+                        opt_result["category_column"],
+                    "value_column": opt_result["value_column"],
+                    "total_budget": opt_result["total_budget"],
+                    "title": (
                         f"Optimal allocation of "
                         f"${opt_result['total_budget']:,.0f} "
                         f"across {opt_result['category_column']}"
                     ),
-                    paper_bgcolor="white",
-                    plot_bgcolor="#f8fafc",
-                    height=360,
-                    margin=dict(t=40, l=10, r=10, b=10),
-                )
+                }
+                opt_fig = build_chart(
+                    st.session_state.df, opt_config)
                 st.plotly_chart(
                     opt_fig, use_container_width=True)
                 st.caption(
@@ -247,6 +240,23 @@ def render():
                     "Allocation is weighted by each category's "
                     f"historical average {opt_result['value_column']}."
                 )
+
+                if st.button("➕ Add allocation to dashboard",
+                             key="add_allocation_tile"):
+                    st.session_state.tiles.append({
+                        "prompt": opt_result.get(
+                            "description", "Budget allocation"),
+                        "config": opt_config,
+                        "fig": opt_fig,
+                        "width": "half",
+                        "height": 320,
+                        "dataset_name":
+                            st.session_state.active_dataset,
+                    })
+                    st.session_state.insight_stale = True
+                    st.success(
+                        "Added — save or publish to keep it.")
+                    st.rerun()
 
     st.divider()
 

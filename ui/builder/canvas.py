@@ -4,6 +4,15 @@ from ai import generate_chart_config, generate_dashboard_insights
 from charts import build_chart
 from ui.helpers import ai_budget_ok, render_insight
 
+# Tiles rebuilt from their own parameters rather than from a prompt.
+# Regenerating one from its prompt would silently turn it into an
+# ordinary chart, so that control is disabled for them.
+ANALYTICAL_TYPES = ("forecast", "allocation")
+REGEN_BLOCKED_HELP = (
+    "Forecast and allocation tiles rebuild from their own settings, "
+    "not from a prompt."
+)
+
 
 def render():
     """Tile grid, per-tile editing, and the executive summary."""
@@ -69,10 +78,15 @@ def render():
                             height=60)
                         c1, c2, c3 = st.columns(3)
                         with c1:
+                            blocked = tile["config"][
+                                "chart_type"] in ANALYTICAL_TYPES
                             if st.button(
                                     "🔄 Regen",
                                     key=f"rg_{i}",
-                                    use_container_width=True) \
+                                    use_container_width=True,
+                                    disabled=blocked,
+                                    help=REGEN_BLOCKED_HELP
+                                    if blocked else None) \
                                     and ai_budget_ok():
                                 regen_df = (
                                     st.session_state
@@ -146,10 +160,16 @@ def render():
                                 c1b, c2b, c3b = \
                                     st.columns(3)
                                 with c1b:
+                                    blocked = t["config"][
+                                        "chart_type"] \
+                                        in ANALYTICAL_TYPES
                                     if st.button(
                                             "🔄 Regen",
                                             key=f"rg_{idx}",
-                                            use_container_width=True) \
+                                            use_container_width=True,
+                                            disabled=blocked,
+                                            help=REGEN_BLOCKED_HELP
+                                            if blocked else None) \
                                             and ai_budget_ok():
                                         regen_df = (
                                             st.session_state
