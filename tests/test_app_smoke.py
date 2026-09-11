@@ -255,6 +255,70 @@ def test_adding_an_analytical_tile_marks_the_summary_stale(stub_backend):
     assert at.session_state["insight_stale"] is True
 
 
+def test_reset_flow_is_closed_without_mail_credentials(
+        stub_backend, monkeypatch):
+    """
+    With no email sender configured the reset form must refuse to
+    reset anything, rather than falling back to the old flow where
+    knowing an address was enough to take over the account.
+    """
+    import mailer
+    monkeypatch.setattr(mailer, "_secret", lambda name: None)
+
+    at = run_app(show_reset=True)
+    assert not at.exception
+
+    warnings = " ".join(str(w.value) for w in at.warning)
+    assert "isn't available" in warnings
+
+    labels = [b.label for b in at.button]
+    assert not any("Send reset link" in label for label in labels)
+
+
+def test_reset_form_is_offered_when_mail_is_configured(
+        stub_backend, monkeypatch):
+    import mailer
+    monkeypatch.setattr(mailer, "_secret", lambda name: "configured")
+
+    at = run_app(show_reset=True)
+    assert not at.exception
+
+    labels = [b.label for b in at.button]
+    assert any("Send reset link" in label for label in labels)
+
+
+def test_invalid_reset_link_is_refused(stub_backend, monkeypatch):
+    # auth.py did `from password_reset import verify_token`, so the
+    # name has to be patched where it is used, not where it is defined.
+    import auth
+    monkeypatch.setattr(auth, "verify_token", lambda token: None)
+
+    at = AppTest.from_file(APP, default_timeout=TIMEOUT)
+    at.query_params["reset"] = "bogus-token"
+    at.run()
+
+    assert not at.exception
+    errors = " ".join(str(e.value) for e in at.error)
+    assert "invalid" in errors or "expired" in errors
+
+
+def test_valid_reset_link_offers_a_new_password_form(
+        stub_backend, monkeypatch):
+    import auth
+    monkeypatch.setattr(
+        auth, "verify_token",
+        lambda token: {"user_id": 1, "email": "user@test.com"})
+
+    at = AppTest.from_file(APP, default_timeout=TIMEOUT)
+    at.query_params["reset"] = "good-token"
+    at.run()
+
+    assert not at.exception
+    labels = [i.label for i in at.text_input]
+    assert "New password" in labels
+    assert "Confirm new password" in labels
+
+
 def test_logging_out_returns_to_the_login_form(stub_backend):
     at = run_app(user=USER)
     logout = [b for b in at.sidebar.button if "Log out" in b.label]

@@ -1,6 +1,10 @@
 import bcrypt
-from db import create_user, get_user_by_email, update_user_password
+from db import create_user, get_user_by_email
 import streamlit as st
+
+from mailer import is_configured, send_password_reset
+from password_reset import complete_reset, issue_token, verify_token
+from ui.config import BASE_URL
 
 def hash_password(password):
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -95,36 +99,60 @@ def show_auth():
 
             else:
                 st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-                st.caption("Enter your email and choose a new password.")
-                reset_email = st.text_input("Email address", key="reset_email",
-                                             placeholder="you@example.com")
-                new_password = st.text_input("New password", type="password",
-                                              key="reset_new_pass",
-                                              placeholder="Enter a new password")
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-                rc1, rc2 = st.columns(2)
-                with rc1:
-                    if st.button("Reset password", use_container_width=True,
-                                  type="primary", key="reset_pw_btn"):
-                        if reset_email and new_password:
-                            user = get_user_by_email(reset_email)
-                            if user:
-                                update_user_password(
-                                    reset_email, hash_password(new_password))
-                                st.session_state.show_reset = False
-                                st.success(
-                                    "Password reset! You can log in now.")
-                            else:
-                                st.error(
-                                    "No account found with that email.")
-                        else:
-                            st.warning("Please fill in all fields.")
-                with rc2:
-                    if st.button("Back to login", use_container_width=True,
+                if not is_configured():
+                    # No mail credentials: close the flow rather than
+                    # fall back to resetting without any verification,
+                    # which would let anyone who knows an address take
+                    # over the account.
+                    st.warning(
+                        "Password reset isn't available on this "
+                        "deployment yet — it needs an email sender "
+                        "configured. Contact the site owner."
+                    )
+                    if st.button("Back to login",
+                                  use_container_width=True,
                                   key="cancel_reset_btn"):
                         st.session_state.show_reset = False
                         st.rerun()
+                else:
+                    st.caption(
+                        "Enter your email and we'll send you a "
+                        "reset link.")
+                    reset_email = st.text_input(
+                        "Email address", key="reset_email",
+                        placeholder="you@example.com")
+                    st.markdown("<div style='height:8px'></div>",
+                                unsafe_allow_html=True)
+
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        if st.button("Send reset link",
+                                      use_container_width=True,
+                                      type="primary",
+                                      key="reset_pw_btn"):
+                            if not reset_email:
+                                st.warning("Enter your email address.")
+                            else:
+                                token = issue_token(reset_email)
+                                if token:
+                                    send_password_reset(
+                                        reset_email,
+                                        f"{BASE_URL}/?reset={token}")
+                                # Same response either way, so this
+                                # form can't be used to discover
+                                # which addresses have accounts.
+                                st.success(
+                                    "If that email has an account, "
+                                    "a reset link is on its way. "
+                                    "It expires in an hour."
+                                )
+                    with rc2:
+                        if st.button("Back to login",
+                                      use_container_width=True,
+                                      key="cancel_reset_btn"):
+                            st.session_state.show_reset = False
+                            st.rerun()
 
         with tab2:
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
@@ -149,3 +177,62 @@ def show_auth():
                         st.error("An account with this email already exists.")
                 else:
                     st.warning("Please fill in all fields.")
+
+def show_reset_page(token):
+    """
+    Landing page for an emailed reset link (?reset=TOKEN).
+
+    Rendered before the auth gate, since the whole point is that the
+    visitor cannot log in.
+    """
+    _, center, _ = st.columns([1, 1.2, 1])
+
+    with center:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='text-align:center; margin-bottom:32px;'>
+            <h1 style='color:#6366f1; font-size:42px; font-weight:700;
+                       margin:0; font-family:sans-serif;'>VizGen</h1>
+            <p style='color:#64748b; font-size:15px; margin:6px 0 0;'>
+                Choose a new password
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        record = verify_token(token)
+        if not record:
+            st.error(
+                "This reset link is invalid, already used, or has "
+                "expired. Request a new one from the login page."
+            )
+            if st.button("Back to login", use_container_width=True,
+                          key="expired_back_btn"):
+                st.query_params.clear()
+                st.rerun()
+            return
+
+        st.caption(f"Resetting the password for {record['email']}.")
+        new_password = st.text_input(
+            "New password", type="password", key="new_pw",
+            placeholder="Enter a new password")
+        confirm = st.text_input(
+            "Confirm new password", type="password", key="confirm_pw",
+            placeholder="Enter it again")
+
+        if st.button("Set new password", use_container_width=True,
+                      type="primary", key="set_pw_btn"):
+            if not new_password or not confirm:
+                st.warning("Fill in both fields.")
+            elif new_password != confirm:
+                st.error("Those passwords don't match.")
+            elif len(new_password) < 8:
+                st.error("Use at least 8 characters.")
+            elif complete_reset(token, hash_password(new_password)):
+                st.success(
+                    "Password updated. You can log in with it now.")
+                st.query_params.clear()
+            else:
+                st.error(
+                    "That link is no longer valid. Request a new "
+                    "one from the login page."
+                )
