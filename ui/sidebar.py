@@ -33,7 +33,6 @@ def render():
             st.session_state.renaming = False
             st.session_state.active_filter = None
             st.session_state.chat_history = []
-            st.session_state.forecast_result = None
             st.session_state.optimize_result = None
             st.rerun()
 
@@ -53,7 +52,6 @@ def render():
             st.session_state.renaming = False
             st.session_state.active_filter = None
             st.session_state.chat_history = []
-            st.session_state.forecast_result = None
             st.session_state.optimize_result = None
             st.rerun()
 

@@ -7,9 +7,9 @@ from ui.helpers import ai_budget_ok, render_insight
 # Tiles rebuilt from their own parameters rather than from a prompt.
 # Regenerating one from its prompt would silently turn it into an
 # ordinary chart, so that control is disabled for them.
-ANALYTICAL_TYPES = ("forecast", "allocation")
+ANALYTICAL_TYPES = ("allocation",)
 REGEN_BLOCKED_HELP = (
-    "Forecast and allocation tiles rebuild from their own settings, "
+    "Allocation tiles rebuild from their own settings, "
     "not from a prompt."
 )
 
@@ -112,28 +112,20 @@ def _render_chart_editor(index, tile):
 
 
 def _render_analytical_editor(index, tile):
-    """Direct controls for forecast and allocation tiles."""
+    """Direct controls for an allocation tile: title and budget."""
     config = dict(tile["config"])
 
     title = st.text_input(
         "Title", value=config.get("title", ""), key=f"t_{index}")
-
-    if config["chart_type"] == "forecast":
-        periods = st.number_input(
-            "Periods ahead", min_value=1, max_value=12,
-            value=int(config.get("periods", 3)),
-            key=f"pd_{index}")
-        changes = {"title": title, "periods": int(periods)}
-    else:
-        budget = st.number_input(
-            "Budget", min_value=1.0,
-            value=float(config.get("total_budget", 1000)),
-            step=1000.0, key=f"bg_{index}")
-        changes = {"title": title, "total_budget": float(budget)}
+    budget = st.number_input(
+        "Budget", min_value=1.0,
+        value=float(config.get("total_budget", 1000)),
+        step=1000.0, key=f"bg_{index}")
 
     if st.button("Apply changes", key=f"ap_{index}",
                  type="primary", use_container_width=True):
-        config.update(changes)
+        config.update(
+            {"title": title, "total_budget": float(budget)})
         _apply_config(index, config)
         st.rerun()
 

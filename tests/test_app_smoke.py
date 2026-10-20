@@ -122,11 +122,10 @@ def test_builder_page_renders_the_data_source_step(stub_backend):
 
 
 def test_builder_without_data_hides_the_ai_tools(stub_backend):
-    """Chat/forecast/optimize only make sense once data is loaded."""
+    """Chat and optimize only make sense once data is loaded."""
     at = run_app(user=USER, page="builder")
     headings = " ".join(s.value for s in at.subheader)
     assert "Ask Your Data" not in headings
-    assert "Forecast" not in headings
     assert "Optimize" not in headings
 
 
@@ -143,7 +142,7 @@ def _loaded_dataset():
 def test_builder_with_data_renders_every_ai_tool(stub_backend):
     """
     Exercises the builder modules that only appear once a dataset is
-    loaded — chat, forecast and optimize each live in their own
+    loaded — chat and optimize each live in their own
     module, so this is what catches a broken split.
     """
     df = _loaded_dataset()
@@ -159,7 +158,7 @@ def test_builder_with_data_renders_every_ai_tool(stub_backend):
     assert not at.exception
 
     headings = " ".join(s.value for s in at.subheader)
-    for section in ("Ask Your Data", "Forecast", "Optimize",
+    for section in ("Ask Your Data", "Optimize",
                     "Business Use Case Mode", "Add a Chart"):
         assert section in headings, f"{section} did not render"
 
@@ -202,38 +201,6 @@ def _builder_with_data(**extra):
         schema_description="A test dataset.",
         **extra,
     )
-
-
-def test_forecast_result_can_be_added_to_the_dashboard(stub_backend):
-    """
-    A forecast used to render and vanish. It must now be promotable
-    to a real tile so it survives save, publish and PDF export.
-    """
-    from forecasting import generate_forecast
-
-    result = generate_forecast(
-        _loaded_dataset(), "month", "revenue", 2)
-    result.update({"time_column": "month",
-                   "value_column": "revenue",
-                   "periods": 2,
-                   "description": "revenue forecast"})
-
-    at = _builder_with_data(forecast_result=result)
-    assert not at.exception
-    assert at.session_state["tiles"] == []
-
-    add = [b for b in at.button
-           if "Add forecast to dashboard" in b.label]
-    assert add, "no control to keep the forecast"
-
-    at = add[0].click().run()
-    assert not at.exception
-
-    tiles = at.session_state["tiles"]
-    assert len(tiles) == 1
-    assert tiles[0]["config"]["chart_type"] == "forecast"
-    assert tiles[0]["config"]["time_column"] == "month"
-    assert tiles[0]["config"]["periods"] == 2
 
 
 def test_allocation_result_can_be_added_to_the_dashboard(stub_backend):

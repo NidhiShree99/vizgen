@@ -7,5 +7,4 @@ psycopg2-binary==2.9.12
 bcrypt==5.0.0
 kaleido==0.2.1
 fpdf2==2.8.8
-statsmodels==0.14.6
 pulp==3.3.2

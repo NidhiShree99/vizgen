@@ -2,7 +2,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from forecasting import generate_forecast
 from optimizer import optimize_budget_allocation
 
 COLORS = ["#6366f1", "#10b981", "#f59e0b",
@@ -17,42 +16,6 @@ def _empty_chart(message):
     fig.update_layout(
         xaxis=dict(visible=False), yaxis=dict(visible=False),
         paper_bgcolor="white", plot_bgcolor="#f8fafc", height=320)
-    return fig
-
-
-def build_forecast_chart(df, config):
-    """
-    Rebuild a forecast tile from its stored parameters.
-
-    The AI call that chose these columns happened once, when the
-    tile was created; recomputing here is pure statistics, so a
-    saved forecast costs nothing to reload and re-forecasts
-    automatically when the underlying data is refreshed.
-    """
-    result = generate_forecast(
-        df, config["time_column"], config["value_column"],
-        int(config.get("periods", 3)))
-
-    if result["status"] != "ok":
-        return _empty_chart(result.get("message", "Forecast failed"))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=result["actual_labels"], y=result["actual_values"],
-        name="Actual", mode="lines+markers",
-        line=dict(color="#6366f1", width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=[result["actual_labels"][-1]] + result["forecast_labels"],
-        y=[result["actual_values"][-1]] + result["forecast_values"],
-        name="Forecast", mode="lines+markers",
-        line=dict(color="#f59e0b", width=2, dash="dash")
-    ))
-    fig.update_layout(
-        title=config.get("title", "Forecast"),
-        paper_bgcolor="white", plot_bgcolor="#f8fafc",
-        height=360, margin=dict(t=40, l=10, r=10, b=10),
-    )
     return fig
 
 
@@ -88,7 +51,12 @@ def build_chart(df, config, tile_index=0):
     # Analytical tiles carry their own parameters rather than the
     # x/y/color shape the plotting types below expect.
     if chart_type == "forecast":
-        return build_forecast_chart(df, config)
+        # Forecasting was removed. Tiles saved before that still sit
+        # in the database, so show a placeholder rather than crash
+        # the whole dashboard looking for an x column they never had.
+        return _empty_chart(
+            "Forecast tiles are no longer supported. "
+            "Delete this tile.")
     if chart_type == "allocation":
         return build_allocation_chart(df, config)
 

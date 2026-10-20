@@ -22,7 +22,6 @@ DEFAULTS = {
     "user": None,
     "active_filter": None,
     "chat_history": [],
-    "forecast_result": None,
     "optimize_result": None,
 }
 

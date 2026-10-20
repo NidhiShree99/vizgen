@@ -182,38 +182,6 @@ def test_second_metric_appears_only_for_dual_charts(stub_backend):
     assert "y2_0" in [s.key for s in at.selectbox]
 
 
-def test_forecast_tile_exposes_its_own_settings(stub_backend):
-    from charts import build_chart
-    config = {"chart_type": "forecast", "time_column": "month",
-              "value_column": "revenue", "periods": 3,
-              "title": "revenue forecast"}
-    tile = {"prompt": "forecast revenue", "config": config,
-            "fig": build_chart(sample_df(), config), "width": "half",
-            "height": 320, "dataset_name": "sample.csv"}
-
-    at = open_canvas(tile)
-    assert not at.exception
-    # Column pickers make no sense here; periods does.
-    assert "x_0" not in [s.key for s in at.selectbox]
-    assert "pd_0" in [n.key for n in at.number_input]
-
-
-def test_changing_forecast_horizon_rebuilds_the_tile(stub_backend):
-    from charts import build_chart
-    config = {"chart_type": "forecast", "time_column": "month",
-              "value_column": "revenue", "periods": 2,
-              "title": "revenue forecast"}
-    tile = {"prompt": "forecast revenue", "config": config,
-            "fig": build_chart(sample_df(), config), "width": "half",
-            "height": 320, "dataset_name": "sample.csv"}
-
-    at = open_canvas(tile)
-    at = widget(at, "number_input", "pd_0").set_value(5).run()
-    at = apply_changes(at)
-
-    assert at.session_state["tiles"][0]["config"]["periods"] == 5
-
-
 def test_allocation_tile_exposes_its_budget(stub_backend):
     from charts import build_chart
     config = {"chart_type": "allocation", "category_column": "region",

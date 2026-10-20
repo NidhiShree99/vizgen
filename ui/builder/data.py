@@ -93,7 +93,6 @@ def render():
                 = st.session_state.active_dataset
             st.session_state.active_filter = None
             st.session_state.chat_history = []
-            st.session_state.forecast_result = None
             st.session_state.optimize_result = None
 
         if st.session_state.schema_description:
