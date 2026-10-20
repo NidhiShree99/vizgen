@@ -46,6 +46,26 @@ def test_app_starts_without_error(stub_backend):
     assert not at.exception
 
 
+def test_database_outage_shows_a_friendly_page_not_a_traceback(
+        stub_backend, monkeypatch):
+    """A paused free-tier database must not surface as a crash."""
+    import db
+
+    def down():
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(db, "create_tables", down)
+
+    at = run_app()
+    assert not at.exception
+
+    body = " ".join(str(m.value) for m in at.markdown)
+    assert "can't reach the database" in body
+    # Nothing past the outage page may render.
+    assert not [b for b in at.button if "Login" in b.label]
+    assert [b.label for b in at.button] == ["Try again"]
+
+
 def test_logged_out_user_sees_the_login_form(stub_backend):
     at = run_app()
     labels = [i.label for i in at.text_input]
