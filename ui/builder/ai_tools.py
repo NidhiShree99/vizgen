@@ -15,21 +15,47 @@ def render():
         "plain English and get real-number answers.")
 
     with st.container(height=320, border=True):
+        if not st.session_state.chat_history:
+            st.caption(
+                "No questions yet. Type one below and press Ask, "
+                "e.g. “Which region grew the fastest?”")
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"].replace("$", "\\$"))
 
-    question = st.chat_input(
-        "e.g. Which region grew the fastest?")
+    # A form rather than st.chat_input: chat_input docks itself to
+    # the bottom of the whole page, far from this section, and didn't
+    # reliably submit. A form keeps the box right under the chat,
+    # gives a visible Ask button, and submits on Enter.
+    with st.form("chat_form", clear_on_submit=True, border=False):
+        ask_col, btn_col = st.columns([5, 1])
+        with ask_col:
+            question = st.text_input(
+                "Ask a question about your data",
+                placeholder="e.g. Which region grew the fastest?",
+                label_visibility="collapsed",
+                key="chat_question")
+        with btn_col:
+            asked = st.form_submit_button(
+                "Ask", use_container_width=True, type="primary")
 
-    if question:
-        if ai_budget_ok():
-            st.session_state.chat_history.append(
-                {"role": "user", "content": question})
+    if asked and not question.strip():
+        st.warning("Type a question first.")
+    elif asked and ai_budget_ok():
+        st.session_state.chat_history.append(
+            {"role": "user", "content": question.strip()})
+        try:
             with st.spinner("Thinking..."):
                 answer = answer_data_question(
-                    st.session_state.df, question,
+                    st.session_state.df, question.strip(),
                     st.session_state.chat_history)
+        except Exception:
+            # Drop the unanswered question so history stays paired,
+            # and say so rather than leaving a silent dead end.
+            st.session_state.chat_history.pop()
+            st.error(
+                "Couldn't get an answer just now. Please try again.")
+        else:
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer})
             st.rerun()
