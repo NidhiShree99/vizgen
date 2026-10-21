@@ -85,3 +85,14 @@ def fake_db(monkeypatch):
             return [sql for sql in self.statements if needle in sql]
 
     return Handle()
+
+
+@pytest.fixture(autouse=True)
+def dev_login_off_by_default(monkeypatch):
+    """
+    db.py loads the developer's .env on import, so a local
+    VIZGEN_DEV_LOGIN=1 would otherwise leak into every test and
+    switch off the very login gate the suite checks. Tests that want
+    the bypass turn it on explicitly.
+    """
+    monkeypatch.delenv("VIZGEN_DEV_LOGIN", raising=False)

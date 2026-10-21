@@ -8,6 +8,7 @@ import streamlit as st
 
 from db import create_tables
 from auth import show_auth, show_reset_page
+import dev_login
 from ui import home, share, sidebar, styles, state
 from ui.builder import page as builder
 
@@ -42,6 +43,11 @@ share.render_if_share_link()
 if "reset" in st.query_params:
     show_reset_page(st.query_params["reset"])
     st.stop()
+
+# Local-only convenience: skip the login form while developing. Off
+# unless VIZGEN_DEV_LOGIN is set in the environment (see dev_login.py).
+if st.session_state.user is None and dev_login.enabled():
+    st.session_state.user = dev_login.get_dev_user()
 
 if st.session_state.user is None:
     show_auth()
