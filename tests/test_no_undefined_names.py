@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 MODULES = [
     "app.py",
-    "ai.py", "auth.py", "charts.py", "db.py", "filters.py",
-    "optimizer.py", "pdf_export.py", "quota.py",
+    "ai.py", "charts.py", "db.py", "filters.py",
+    "optimizer.py", "owner.py", "pdf_export.py", "quota.py",
     "ui/config.py", "ui/helpers.py", "ui/home.py", "ui/share.py",
     "ui/sidebar.py", "ui/state.py", "ui/styles.py",
     "ui/builder/ai_tools.py", "ui/builder/canvas.py",

@@ -11,10 +11,6 @@ def render():
         st.title("🎨 VizGen")
         st.caption("AI Dashboard Builder")
         st.caption(f"👤 {st.session_state.user['name']}")
-        if st.button("🚪 Log out", use_container_width=True):
-            st.session_state.user = None
-            st.session_state.page = "home"
-            st.rerun()
 
         ai_used, ai_limit = usage(st.session_state.user["id"])
         st.caption(f"⚡ AI usage: {ai_used}/{ai_limit} today")

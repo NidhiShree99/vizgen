@@ -33,7 +33,7 @@ def render_if_share_link():
                         f"font-size:12px;font-weight:600;"
                         f"color:#4338ca;'>"
                         f"Currently Published · "
-                        f"{latest_v['published_at'][:10]}"
+                        f"{str(latest_v['published_at'])[:10]}"
                         f"</div>",
                         unsafe_allow_html=True
                     )

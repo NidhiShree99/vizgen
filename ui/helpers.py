@@ -110,7 +110,7 @@ def version_list_html(versions):
     )
     for idx, v in enumerate(versions):
         label = labels[idx]
-        date = v['published_at'][:10]
+        date = str(v['published_at'])[:10]
         color = "#6366f1" if idx == 0 else "#94a3b8"
         weight = "600" if idx == 0 else "400"
         html += (

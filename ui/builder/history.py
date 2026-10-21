@@ -24,7 +24,7 @@ def render():
                     expanded=False):
                 for idx_v, v in enumerate(older_versions):
                     label = labels[idx_v + 1]
-                    date = v['published_at'][:16]
+                    date = str(v['published_at'])[:16]
                     st.markdown(
                         f"<p style='font-weight:600;"
                         f"font-size:13px;color:#475569;"

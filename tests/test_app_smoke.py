@@ -33,6 +33,9 @@ def stub_backend(monkeypatch):
     monkeypatch.setattr(quota, "count_api_calls_today", lambda uid: 0)
     monkeypatch.setattr(quota, "record_api_call", lambda uid: None)
 
+    import owner
+    monkeypatch.setattr(owner, "get_owner", lambda: USER)
+
 
 def run_app(**session):
     at = AppTest.from_file(APP, default_timeout=TIMEOUT)
@@ -66,38 +69,14 @@ def test_database_outage_shows_a_friendly_page_not_a_traceback(
     assert [b.label for b in at.button] == ["Try again"]
 
 
-def test_logged_out_user_sees_the_login_form(stub_backend):
-    at = run_app()
-    labels = [i.label for i in at.text_input]
-    assert "Email address" in labels
-    assert "Password" in labels
-
-
-def test_logged_out_user_cannot_see_the_dashboard_ui(stub_backend):
-    """The auth gate must stop the app before any dashboard chrome."""
-    at = run_app()
-    assert [s.value for s in at.subheader] == []
-    assert not [b for b in at.button if "New Dashboard" in b.label]
-
-
-def test_login_and_signup_tabs_are_both_offered(stub_backend):
-    at = run_app()
-    assert len(at.tabs) >= 2
-
-
-def test_forgot_password_is_reachable_from_login(stub_backend):
-    at = run_app()
-    labels = [b.label for b in at.button]
-    assert any("Forgot password" in label for label in labels)
-
-
 # --- logged-in surface ---
 
 USER = {"id": 1, "name": "Test User", "email": "t@test.com"}
 
 
-def test_logged_in_user_reaches_the_home_page(stub_backend):
-    at = run_app(user=USER)
+def test_app_opens_straight_to_the_home_page(stub_backend):
+    """No login: a fresh session lands on the app, not a form."""
+    at = run_app()
     assert not at.exception
     assert any("Welcome to VizGen" in t.value for t in at.title)
 
@@ -242,75 +221,36 @@ def test_adding_an_analytical_tile_marks_the_summary_stale(stub_backend):
     assert at.session_state["insight_stale"] is True
 
 
-def test_reset_flow_is_closed_without_mail_credentials(
-        stub_backend, monkeypatch):
-    """
-    With no email sender configured the reset form must refuse to
-    reset anything, rather than falling back to the old flow where
-    knowing an address was enough to take over the account.
-    """
-    import mailer
-    monkeypatch.setattr(mailer, "_secret", lambda name: None)
+# --- no login ---
 
-    at = run_app(show_reset=True)
+def test_there_is_no_login_form_or_logout_button(stub_backend):
+    at = run_app()
     assert not at.exception
 
-    warnings = " ".join(str(w.value) for w in at.warning)
-    assert "isn't available" in warnings
-
-    labels = [b.label for b in at.button]
-    assert not any("Send reset link" in label for label in labels)
-
-
-def test_reset_form_is_offered_when_mail_is_configured(
-        stub_backend, monkeypatch):
-    import mailer
-    monkeypatch.setattr(mailer, "_secret", lambda name: "configured")
-
-    at = run_app(show_reset=True)
-    assert not at.exception
-
-    labels = [b.label for b in at.button]
-    assert any("Send reset link" in label for label in labels)
-
-
-def test_invalid_reset_link_is_refused(stub_backend, monkeypatch):
-    # auth.py did `from password_reset import verify_token`, so the
-    # name has to be patched where it is used, not where it is defined.
-    import auth
-    monkeypatch.setattr(auth, "verify_token", lambda token: None)
-
-    at = AppTest.from_file(APP, default_timeout=TIMEOUT)
-    at.query_params["reset"] = "bogus-token"
-    at.run()
-
-    assert not at.exception
-    errors = " ".join(str(e.value) for e in at.error)
-    assert "invalid" in errors or "expired" in errors
-
-
-def test_valid_reset_link_offers_a_new_password_form(
-        stub_backend, monkeypatch):
-    import auth
-    monkeypatch.setattr(
-        auth, "verify_token",
-        lambda token: {"user_id": 1, "email": "user@test.com"})
-
-    at = AppTest.from_file(APP, default_timeout=TIMEOUT)
-    at.query_params["reset"] = "good-token"
-    at.run()
-
-    assert not at.exception
     labels = [i.label for i in at.text_input]
-    assert "New password" in labels
-    assert "Confirm new password" in labels
+    assert "Email address" not in labels
+    assert "Password" not in labels
+
+    buttons = [b.label for b in at.button] \
+        + [b.label for b in at.sidebar.button]
+    assert not any("Log out" in b or "Login" in b for b in buttons)
 
 
-def test_logging_out_returns_to_the_login_form(stub_backend):
-    at = run_app(user=USER)
-    logout = [b for b in at.sidebar.button if "Log out" in b.label]
-    assert logout, "no log out control in the sidebar"
+def test_every_session_runs_as_the_owner_account(stub_backend):
+    at = run_app()
+    assert at.session_state["user"] == USER
 
-    at = logout[0].click().run()
-    assert not at.exception
-    assert at.session_state["user"] is None
+
+def test_dashboard_scoping_still_uses_the_owner_id(
+        stub_backend, monkeypatch):
+    """Data stays keyed to a user id even without a login."""
+    # home and sidebar import the function by name, so it has to be
+    # patched where it is used rather than where it is defined.
+    from ui import home, sidebar
+    seen = []
+    spy = lambda uid: seen.append(uid) or []  # noqa: E731
+    monkeypatch.setattr(home, "get_user_dashboards", spy)
+    monkeypatch.setattr(sidebar, "get_user_dashboards", spy)
+
+    run_app()
+    assert seen and set(seen) == {USER["id"]}

@@ -7,8 +7,7 @@ themselves live in the `ui` package.
 import streamlit as st
 
 from db import create_tables
-from auth import show_auth, show_reset_page
-import dev_login
+import owner
 from ui import home, share, sidebar, styles, state
 from ui.builder import page as builder
 
@@ -38,20 +37,9 @@ state.init_session_state()
 # Public share links render read-only and never reach the auth gate.
 share.render_if_share_link()
 
-# Emailed reset links land here — the visitor cannot log in, so this
-# also has to run ahead of the auth gate.
-if "reset" in st.query_params:
-    show_reset_page(st.query_params["reset"])
-    st.stop()
-
-# Local-only convenience: skip the login form while developing. Off
-# unless VIZGEN_DEV_LOGIN is set in the environment (see dev_login.py).
-if st.session_state.user is None and dev_login.enabled():
-    st.session_state.user = dev_login.get_dev_user()
-
+# No login: every session runs as the single owner account.
 if st.session_state.user is None:
-    show_auth()
-    st.stop()
+    st.session_state.user = owner.get_owner()
 
 sidebar.render()
 

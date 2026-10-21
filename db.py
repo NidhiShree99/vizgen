@@ -84,17 +84,6 @@ def create_tables():
     """)
 
     c.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            token_hash TEXT UNIQUE NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            used_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    c.execute("""
         CREATE TABLE IF NOT EXISTS api_usage (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -136,75 +125,6 @@ def get_user_by_email(email):
     row = c.fetchone()
     conn.close()
     return dict(row) if row else None
-
-
-def update_user_password(email, password_hash):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "UPDATE users SET password_hash = %s WHERE email = %s",
-        (password_hash, email)
-    )
-    conn.commit()
-    conn.close()
-
-
-def create_password_reset(user_id, token_hash, expires_at):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO password_resets "
-        "(user_id, token_hash, expires_at) VALUES (%s, %s, %s)",
-        (user_id, token_hash, expires_at)
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_valid_password_reset(token_hash):
-    """
-    Look up an unused, unexpired reset token. Returns None for
-    tokens that are unknown, already spent, or past their expiry —
-    the caller cannot tell these apart, by design.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "SELECT pr.*, u.email FROM password_resets pr "
-        "JOIN users u ON u.id = pr.user_id "
-        "WHERE pr.token_hash = %s "
-        "AND pr.used_at IS NULL "
-        "AND pr.expires_at > NOW()",
-        (token_hash,)
-    )
-    row = c.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def consume_password_reset(token_hash):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "UPDATE password_resets SET used_at = NOW() "
-        "WHERE token_hash = %s",
-        (token_hash,)
-    )
-    conn.commit()
-    conn.close()
-
-
-def invalidate_password_resets(user_id):
-    """Spend any outstanding tokens, e.g. after a successful reset."""
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "UPDATE password_resets SET used_at = NOW() "
-        "WHERE user_id = %s AND used_at IS NULL",
-        (user_id,)
-    )
-    conn.commit()
-    conn.close()
 
 
 def count_api_calls_today(user_id):
